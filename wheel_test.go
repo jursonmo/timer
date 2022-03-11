@@ -69,7 +69,12 @@ func TestTimers(t *testing.T) {
 		w.NewTimer(time.Duration(delay) * time.Millisecond)
 	}
 	if timers := w.Timers(); timers != n {
-		t.Fatalf("add %d timer, but in wheel timer num=%d\n", n, timers)
+		t.Fatalf("add %d timer, but there are %d timer in wheel\n", n, timers)
+	}
+
+	time.Sleep(time.Second)
+	if timers := w.Timers(); timers != 0 {
+		t.Fatalf("all timer should have executed, but there are %d timer in wheel\n", timers)
 	}
 	w.Stop()
 }
