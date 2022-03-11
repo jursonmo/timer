@@ -1,14 +1,14 @@
 package timer
 
 import (
+	"math/rand"
 	"sync"
 	"testing"
 	"time"
 )
 
-var testWheel = NewWheel(1 * time.Millisecond)
-
 func TestTimer(t *testing.T) {
+	var testWheel = NewWheel(1 * time.Millisecond)
 	t1 := testWheel.NewTimer(500 * time.Millisecond)
 
 	before := time.Now()
@@ -17,9 +17,11 @@ func TestTimer(t *testing.T) {
 	after := time.Now()
 
 	println(after.Sub(before).String())
+	testWheel.Stop()
 }
 
 func TestTicker(t *testing.T) {
+	var testWheel = NewWheel(1 * time.Millisecond)
 	wait := make(chan struct{}, 100)
 	i := 0
 	f := func() {
@@ -40,6 +42,36 @@ func TestTicker(t *testing.T) {
 	after := time.Now()
 
 	println(after.Sub(before).String())
+	testWheel.Stop()
+}
+
+func TestRepeatStopTimer(t *testing.T) {
+	w := NewWheel(1 * time.Millisecond)
+	timer := w.NewTimer(500 * time.Millisecond)
+
+	if !timer.Stop() {
+		t.Fatalf("t.Stop() fail")
+	}
+	if timer.Stop() {
+		t.Fatalf("shouldn't repeat Stop() timer")
+	}
+	w.Stop()
+}
+
+func TestTimers(t *testing.T) {
+	w := NewWheel(1 * time.Millisecond)
+	s := rand.NewSource(time.Now().UnixNano())
+	r := rand.New(s)
+
+	n := 10000
+	for i := 0; i < n; i++ {
+		delay := 500 + r.Intn(300)
+		w.NewTimer(time.Duration(delay) * time.Millisecond)
+	}
+	if timers := w.Timers(); timers != n {
+		t.Fatalf("add %d timer, but in wheel timer num=%d\n", n, timers)
+	}
+	w.Stop()
 }
 
 //go test *.go -test.run TestStopTimer
@@ -61,8 +93,8 @@ func TestStopTimer(t *testing.T) {
 		mu.Unlock()
 	}
 	for i := 0; i < n; i++ {
-		mu.Lock()
 		t := testWheel.NewTimerFunc(time.Millisecond*500, f, i)
+		mu.Lock()
 		timerMap[i] = t
 		mu.Unlock()
 

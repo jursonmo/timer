@@ -5,6 +5,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/jursonmo/timer/ilist"
 )
 
 const (
@@ -19,6 +21,9 @@ const (
 
 const (
 	defaultTimerSize = 128
+	NotReady         = 0
+	PreRunning       = 1
+	Running          = 2
 )
 
 var defaultWheel *Wheel
@@ -28,28 +33,36 @@ func init() {
 }
 
 type timer struct {
+	ilist.Entry
+	list    *ilist.List
 	expires uint64
 	period  uint64
-
-	f   func(time.Time, ...interface{})
-	arg []interface{}
+	state   int //1.
+	f       func(time.Time, ...interface{})
+	arg     []interface{}
 
 	w *Wheel
 
-	vec   []*timer
-	index int
+	// vec   []*timer
+	// index int
 }
 
 type Wheel struct {
 	sync.Mutex
-
 	jiffies    uint64
+	timers     int
 	taskRuning int32 //记录只在执行timer func 的goroutine 数量
-	tv1        [][]*timer
-	tv2        [][]*timer
-	tv3        [][]*timer
-	tv4        [][]*timer
-	tv5        [][]*timer
+
+	// tv1        [][]*timer
+	// tv2        [][]*timer
+	// tv3        [][]*timer
+	// tv4        [][]*timer
+	// tv5        [][]*timer
+	tv1 []ilist.List
+	tv2 []ilist.List
+	tv3 []ilist.List
+	tv4 []ilist.List
+	tv5 []ilist.List
 
 	tick time.Duration
 
@@ -62,12 +75,8 @@ func NewWheel(tick time.Duration) *Wheel {
 
 	w.quit = make(chan struct{})
 
-	f := func(size int) [][]*timer {
-		tv := make([][]*timer, size)
-		for i := range tv {
-			tv[i] = make([]*timer, 0, defaultTimerSize)
-		}
-
+	f := func(size int) []ilist.List {
+		tv := make([]ilist.List, size)
 		return tv
 	}
 
@@ -84,11 +93,17 @@ func NewWheel(tick time.Duration) *Wheel {
 	return w
 }
 
+func (w *Wheel) Timers() int {
+	w.Lock()
+	defer w.Unlock()
+	return w.timers
+}
+
 func (w *Wheel) addTimerInternal(t *timer) {
 	expires := t.expires
 	idx := t.expires - w.jiffies
 
-	var tv [][]*timer
+	var tv []ilist.List
 	var i uint64
 
 	if idx < tvr_size {
@@ -116,26 +131,19 @@ func (w *Wheel) addTimerInternal(t *timer) {
 		i = (expires >> (tvr_bits + 3*tvn_bits)) & tvn_mask
 		tv = w.tv5
 	}
-
-	tv[i] = append(tv[i], t) //bug:这里可能会分配新的内存，原来的timer.vec 会指向老的内存。导致delTimer无法删除指定timer. example/batch.go 就证明了这个bug
-
-	t.vec = tv[i] //如果append分配新的内存，这里的t.vec 会指向老的内存。用sliec的方式保存timer,删除时就不方便了。还是用链表吧
-	t.index = len(tv[i]) - 1
+	tv[i].PushBack(t)
+	t.list = &tv[i]
 }
 
-func (w *Wheel) cascade(tv [][]*timer, index int) int {
-	vec := tv[index]
-	tv[index] = vec[0:0:defaultTimerSize]
-
-	for _, t := range vec {
-		//w.addTimerInternal(t) //fixbug: 如果vec里的timer 删除了, t 可能是nil, 所以这里需要判断t是否为nil
-		if t != nil {
-			w.addTimerInternal(t)
-		} else {
-			log.Printf("t != nil \n")
-		}
+func (w *Wheel) cascade(tv []ilist.List, index int) int {
+	var t *timer
+	list := tv[index]
+	for !list.Empty() {
+		e := list.Front()
+		list.Remove(e)
+		t = e.(*timer)
+		w.addTimerInternal(t)
 	}
-
 	return index
 }
 
@@ -157,24 +165,14 @@ func (w *Wheel) onTick() {
 
 	//w.jiffies++
 	atomic.AddUint64(&w.jiffies, 1) //w.jiffies有变化时,用atomic.Add, 让其他任务可以在没有加锁的情况下,用atomic.Load来获取最新值。
-
-	//vec := w.tv1[index]
-	//这样处理是有问题的，如果w.tv1这时有timer 加入，用的内存还是vec, 也就是go f(vec) 可能执行新的timer？
-	//不太可能,现在w.jiffies++了, 这个w.tv1[index] 要等到轮一圈后才会用到, 除非go f(vec) 一圈后还没执行完
-	//w.tv1[index] = vec[0:0:defaultTimerSize]
-	vec := make([]*timer, len(w.tv1[index]))
-	copy(vec[:], w.tv1[index])
-
-	//置空w.tv1[index], 1. 为了更快gc, 2. 为了time.Stop() 可以正确返回true
-	for i := 0; i < len(w.tv1[index]); i++ {
-		if w.tv1[index][i] != nil {
-			w.tv1[index][i].vec = nil
-			w.tv1[index][i].index = -1
-			w.tv1[index][i] = nil
-		}
+	for e := w.tv1[index].Front(); e != nil; e = e.Next() {
+		t := e.(*timer)
+		t.state = PreRunning
+		t.list = nil
+		w.timers--
 	}
-	w.tv1[index] = w.tv1[index][0:0:defaultTimerSize]
-
+	execList := w.tv1[index]
+	w.tv1[index].Reset()
 	w.Unlock()
 
 	//检查 w.taskRuning 的合理性,如果w.tick是50ms, 那么w.taskRuning必须等于0，即50ms 内必须定时器必须执行完。
@@ -184,13 +182,14 @@ func (w *Wheel) onTick() {
 		log.Printf("warnning: %d task still running\n", running)
 	}
 
-	f := func(vec []*timer) {
+	f := func(list ilist.List) {
 		now := time.Now()
-		for _, t := range vec {
-			if t == nil {
-				continue
-			}
-
+		for !list.Empty() {
+			e := list.Front()
+			list.Remove(e)
+			e.Reset()
+			t := e.(*timer)
+			t.state = Running
 			t.f(now, t.arg...)
 
 			if t.period > 0 {
@@ -201,34 +200,27 @@ func (w *Wheel) onTick() {
 		atomic.AddInt32(&w.taskRuning, -1)
 	}
 
-	if len(vec) > 0 {
+	if !execList.Empty() {
 		atomic.AddInt32(&w.taskRuning, 1)
-		go f(vec)
+		go f(execList)
 	}
 }
 
 func (w *Wheel) addTimer(t *timer) {
 	w.Lock()
 	w.addTimerInternal(t)
+	w.timers++
 	w.Unlock()
 }
 
 func (w *Wheel) delTimer(t *timer) bool {
 	w.Lock()
 	defer w.Unlock()
-	if t.index == -1 {
-		return false
-	}
-	vec := t.vec
-	index := t.index
-
-	if vec != nil && len(vec) > index && vec[index] == t {
-		vec[index] = nil
-		t.vec = nil //尽快解除引用
-		t.index = -1
+	if t.list != nil /*&& t.state == NotReady*/ {
+		t.list.Remove(t)
+		t.list = nil
 		return true
 	}
-
 	return false
 }
 
