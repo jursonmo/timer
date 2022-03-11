@@ -42,6 +42,7 @@ func TestTicker(t *testing.T) {
 	println(after.Sub(before).String())
 }
 
+//go test *.go -test.run TestStopTimer
 func TestStopTimer(t *testing.T) {
 	var testWheel = NewWheel(1 * time.Millisecond)
 	//n := 3000
