@@ -27,6 +27,12 @@ const (
 	Running          = 3
 )
 
+/*				addtimer									release
+//init(stoped)----------->NotReady ---> Ready --->Running ---------->Stoped
+							|
+			 <--------------|
+			    deltimer
+*/
 var defaultWheel *Wheel
 
 func init() {
@@ -148,6 +154,7 @@ func (w *Wheel) addTimerInternal(t *timer) {
 	}
 	tv[i].PushBack(t)
 	t.list = &tv[i]
+	t.state = NotReady
 }
 
 func (w *Wheel) cascade(tv []ilist.List, index int) int {
@@ -231,10 +238,14 @@ func (w *Wheel) addTimer(t *timer) {
 func (w *Wheel) delTimer(t *timer) bool {
 	w.Lock()
 	defer w.Unlock()
+	if t.state == Stoped {
+		return true
+	}
 	if t.list != nil /*&& t.state == NotReady*/ {
 		t.list.Remove(t)
 		t.Entry.Reset()
 		t.list = nil
+		t.state = Stoped
 		return true
 	}
 	return false
