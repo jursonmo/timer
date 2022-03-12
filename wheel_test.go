@@ -27,7 +27,7 @@ func TestTicker(t *testing.T) {
 	f := func() {
 		println(time.Now().Unix())
 		i++
-		if i >= 10 {
+		if i >= 5 {
 			wait <- struct{}{}
 		}
 	}
