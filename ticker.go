@@ -22,7 +22,8 @@ func Tick(d time.Duration) <-chan time.Time {
 }
 
 func (t *Ticker) Stop() {
-	t.r.w.delTimer(t.r)
+	//t.r.w.delTimer(t.r)
+	t.r.Stop()
 }
 
 func (t *Ticker) Reset(d time.Duration) {

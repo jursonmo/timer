@@ -21,9 +21,10 @@ const (
 
 const (
 	defaultTimerSize = 128
-	NotReady         = 0
-	PreRunning       = 1
-	Running          = 2
+	Stoped           = 0
+	NotReady         = 1
+	Ready            = 2
+	Running          = 3
 )
 
 var defaultWheel *Wheel
@@ -32,26 +33,25 @@ func init() {
 	defaultWheel = NewWheel(100 * time.Millisecond)
 }
 
+type WheelTimer = timer
 type timer struct {
 	ilist.Entry
-	list    *ilist.List
+	list *ilist.List
+	w    *Wheel
+
 	expires uint64
 	period  uint64
 	state   int //1.
 	f       func(time.Time, ...interface{})
 	arg     []interface{}
-
-	w *Wheel
-
-	// vec   []*timer
-	// index int
 }
 
 type Wheel struct {
 	sync.Mutex
 	jiffies    uint64
+	timerPool  timerPooler
 	timers     int
-	taskRuning int32 //记录只在执行timer func 的goroutine 数量
+	taskRuning int32 //记录正在执行timer func 的goroutine 数量
 
 	// tv1        [][]*timer
 	// tv2        [][]*timer
@@ -69,9 +69,24 @@ type Wheel struct {
 	quit chan struct{}
 }
 
+type Option func(*Wheel)
+
+func WithTimerPool(p timerPooler) Option {
+	return func(w *Wheel) {
+		w.timerPool = p
+	}
+}
+
 //tick is the time for a jiffies
-func NewWheel(tick time.Duration) *Wheel {
+func NewWheel(tick time.Duration, opts ...Option) *Wheel {
 	w := new(Wheel)
+	for _, opt := range opts {
+		opt(w)
+	}
+
+	if w.timerPool == nil {
+		w.timerPool = NewTimerSyncPool()
+	}
 
 	w.quit = make(chan struct{})
 
@@ -167,7 +182,7 @@ func (w *Wheel) onTick() {
 	atomic.AddUint64(&w.jiffies, 1) //w.jiffies有变化时,用atomic.Add, 让其他任务可以在没有加锁的情况下,用atomic.Load来获取最新值。
 	for e := w.tv1[index].Front(); e != nil; e = e.Next() {
 		t := e.(*timer)
-		t.state = PreRunning
+		t.state = Ready
 		t.list = nil
 		w.timers--
 	}
@@ -218,6 +233,7 @@ func (w *Wheel) delTimer(t *timer) bool {
 	defer w.Unlock()
 	if t.list != nil /*&& t.state == NotReady*/ {
 		t.list.Remove(t)
+		t.Entry.Reset()
 		t.list = nil
 		return true
 	}
@@ -238,7 +254,8 @@ func (w *Wheel) resetTimer(t *timer, when time.Duration, period time.Duration) b
 
 func (w *Wheel) newTimer(when time.Duration, period time.Duration,
 	f func(time.Time, ...interface{}), arg ...interface{}) *timer {
-	t := new(timer)
+	//t := new(timer)
+	t := w.getTimer()
 
 	t.expires = atomic.LoadUint64(&w.jiffies) + uint64(when/w.tick)
 	t.period = uint64(period / w.tick)
@@ -249,6 +266,41 @@ func (w *Wheel) newTimer(when time.Duration, period time.Duration,
 	t.w = w
 
 	return t
+}
+
+func (w *Wheel) getTimer() *timer {
+	if w.timerPool == nil {
+		return new(timer)
+	}
+	t := w.timerPool.Get()
+	//check timer and reset
+	if t.list != nil || t.f != nil || t.arg != nil || t.state != Stoped {
+		log.Fatalf("timer is not init state")
+	}
+	return t
+}
+
+//并发不安全
+func (w *Wheel) releaseTimer(t *timer) {
+	if w.timerPool == nil {
+		return
+	}
+	//check timer
+	if t.list != nil {
+		log.Fatalf("timer is in wheel, can't be released")
+	}
+	//init timer
+	t.f = nil
+	t.arg = nil //gc faster
+	t.state = Stoped
+	w.timerPool.Put(t)
+}
+
+func (w *Wheel) PoolNewCount() int64 {
+	if counter, ok := w.timerPool.(PoolNewCounter); ok {
+		return counter.PoolNewCount()
+	}
+	return -1
 }
 
 func (w *Wheel) run() {
@@ -352,4 +404,23 @@ func (w *Wheel) NewTimerFunc(d time.Duration, f func(time.Time, ...interface{}),
 	w.addTimer(t.r)
 
 	return t
+}
+
+//相比NewTimerFunc, 不用创建Timer{}对象，直接创建WheelTimer对象。
+func (w *Wheel) NewWheelTimerFunc(d time.Duration, f func(time.Time, ...interface{}), arg ...interface{}) *WheelTimer {
+	t := w.newTimer(d, 0, f, arg...)
+	w.addTimer(t)
+	return t
+}
+
+func (t *timer) Stop() bool {
+	return t.w.delTimer(t)
+}
+
+func (t *timer) ResetTimer(d time.Duration, period time.Duration) bool {
+	return t.w.resetTimer(t, d, period)
+}
+
+func (t *timer) Release() {
+	t.w.releaseTimer(t)
 }

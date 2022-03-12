@@ -134,4 +134,25 @@ func TestStopTimer(t *testing.T) {
 		// 	t.Logf("index:%d\n", index)
 		// }
 	}
+	testWheel.Stop()
+}
+
+func TestTimerPool(t *testing.T) {
+	var testWheel = NewWheel(2*time.Millisecond, WithTimerPool(NewTimerSyncPool()))
+	n := 1000
+	release := 0
+	timer := testWheel.NewTimer(time.Duration(10) * time.Millisecond) //new one first
+	for i := 0; i < n; i++ {
+		if timer.Stop() {
+			timer.Release()
+			release++
+		}
+		//this timer should get from pool unless gc happen
+		timer = testWheel.NewTimer(time.Duration(10+i) * time.Millisecond)
+	}
+	//除非发生了gc, 不然timer Release 后，就会给 NewTimer。
+	if (n - release + 1) != int(testWheel.PoolNewCount()) {
+		t.Fatalf("alloc:%d, pool new count:%d", n-release+1, testWheel.PoolNewCount())
+	}
+	t.Logf("alloc:%d, pool new count:%d", n-release+1, testWheel.PoolNewCount())
 }
