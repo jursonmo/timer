@@ -25,14 +25,18 @@ const (
 	NotReady         = 1
 	Ready            = 2
 	Running          = 3
+	InPool           = 4
 )
 
-/*				addtimer									release
-//init(stoped)----------->NotReady ---> Ready --->Running ---------->Stoped
+/*				addtimer									release         Get()
+//init(Stoped)----------->NotReady ---> Ready --->Running ---------->InPool------->Stoped
 							|
 			 <--------------|
 			    deltimer
 */
+//目前只有stoped和NotReady的状态timer.Stop()才返回true,
+// todo:按道理timer excute完后可以Stop() 和 Reset(); 同时timer in sync.Pool 是不能做任何操作的
+
 var defaultWheel *Wheel
 
 func init() {
@@ -235,6 +239,8 @@ func (w *Wheel) addTimer(t *timer) {
 	w.Unlock()
 }
 
+//目前只有stoped和NotReady的状态timer.Stop()才返回true,
+// todo:那道理timer excute完后可以Stop() 和 Reset(); 同时timer in sync.Pool 是不能做任何操作的
 func (w *Wheel) delTimer(t *timer) bool {
 	w.Lock()
 	defer w.Unlock()
@@ -285,9 +291,13 @@ func (w *Wheel) getTimer() *timer {
 	}
 	t := w.timerPool.Get()
 	//check timer and reset
-	if t.list != nil || t.f != nil || t.arg != nil || t.state != Stoped {
+	if t.list != nil || t.f != nil || t.arg != nil {
 		log.Fatalf("timer is not init state")
 	}
+	if t.state != Stoped && t.state != InPool {
+		log.Fatalf("t.state != Stoped && t.state != InPool")
+	}
+	t.state = Stoped
 	return t
 }
 
@@ -303,7 +313,7 @@ func (w *Wheel) releaseTimer(t *timer) {
 	//init timer
 	t.f = nil
 	t.arg = nil //gc faster
-	t.state = Stoped
+	t.state = InPool
 	w.timerPool.Put(t)
 }
 
