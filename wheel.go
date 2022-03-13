@@ -192,7 +192,7 @@ func (w *Wheel) onTick() {
 			t.f(now, t.arg...)
 
 			if t.period > 0 {
-				t.expires = t.period + w.jiffies
+				t.expires = t.period + atomic.LoadUint64(&w.jiffies)
 				w.addTimer(t)
 			}
 		}
