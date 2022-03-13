@@ -1,7 +1,6 @@
 package timer
 
 import (
-	"fmt"
 	"time"
 )
 
@@ -41,10 +40,11 @@ func (t *Timer) Release() {
 	t.r.Release()
 }
 
-func NewTimerFunc(d time.Duration, f func(time.Time, ...interface{}), arg ...interface{}) *Timer {
-	return defaultWheel.NewTimerFunc(d, f, arg...)
+// 需要传入callback的接口，应该用NewWheelTimerFunc 接口, 而不是NewTimerFunc
+func NewTimerFunc(d time.Duration, callback func(time.Time, ...interface{}), arg ...interface{}) *Timer {
+	return defaultWheel.NewTimerFunc(d, callback, arg...)
 }
 
 func (t *Timer) Info() string {
-	return fmt.Sprintf("expires:%d, period:%d, args:%v", t.r.expires, t.r.period, t.r.arg)
+	return t.r.Info()
 }

@@ -1,6 +1,7 @@
 package timer
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/jursonmo/timer/ilist"
@@ -36,6 +37,10 @@ type timer struct {
 	arg     []interface{}
 }
 
+func NewWheelTimerFunc(d time.Duration, f func(time.Time, ...interface{}), arg ...interface{}) {
+	defaultWheel.NewWheelTimerFunc(d, f, arg...)
+}
+
 func (t *timer) Stop() bool {
 	return t.w.delTimer(t)
 }
@@ -46,4 +51,8 @@ func (t *timer) ResetTimer(d time.Duration, period time.Duration) bool {
 
 func (t *timer) Release() {
 	t.w.releaseTimer(t)
+}
+
+func (t *timer) Info() string {
+	return fmt.Sprintf("expires:%d, period:%d, args:%v", t.expires, t.period, t.arg)
 }

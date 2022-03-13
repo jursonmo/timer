@@ -112,8 +112,8 @@ func TestStopTimer(t *testing.T) {
 	//n := 3000
 	n := 1000
 	var mu sync.Mutex
-	stopTimerMap := make(map[int]*Timer)
-	timerMap := make(map[int]*Timer)
+	stopTimerMap := make(map[int]*WheelTimer)
+	timerMap := make(map[int]*WheelTimer)
 	f := func(_ time.Time, args ...interface{}) {
 		mu.Lock()
 		index := args[0].(int)
@@ -125,7 +125,7 @@ func TestStopTimer(t *testing.T) {
 		mu.Unlock()
 	}
 	for i := 0; i < n; i++ {
-		t := testWheel.NewTimerFunc(time.Millisecond*500, f, i)
+		t := testWheel.NewWheelTimerFunc(time.Millisecond*500, f, i)
 		mu.Lock()
 		timerMap[i] = t
 		mu.Unlock()
