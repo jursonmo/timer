@@ -20,40 +20,13 @@ const (
 )
 
 const (
-	defaultTimerSize = 128
-	Stoped           = 0
-	NotReady         = 1
-	Ready            = 2
-	Running          = 3
-	InPool           = 4
+//defaultTimerSize = 128
 )
-
-/*				addtimer									release         Get()
-//init(Stoped)----------->NotReady ---> Ready --->Running ---------->InPool------->Stoped
-							|
-			 <--------------|
-			    deltimer
-*/
-//目前只有stoped和NotReady的状态timer.Stop()才返回true,
-// todo:按道理timer excute完后可以Stop() 和 Reset(); 同时timer in sync.Pool 是不能做任何操作的
 
 var defaultWheel *Wheel
 
 func init() {
 	defaultWheel = NewWheel(100 * time.Millisecond)
-}
-
-type WheelTimer = timer
-type timer struct {
-	ilist.Entry
-	list *ilist.List
-	w    *Wheel
-
-	expires uint64
-	period  uint64
-	state   int //1.
-	f       func(time.Time, ...interface{})
-	arg     []interface{}
 }
 
 type Wheel struct {
@@ -317,6 +290,7 @@ func (w *Wheel) releaseTimer(t *timer) {
 	w.timerPool.Put(t)
 }
 
+//如果没有实现PoolNewCounter,返回 -1
 func (w *Wheel) PoolNewCount() int64 {
 	if counter, ok := w.timerPool.(PoolNewCounter); ok {
 		return counter.PoolNewCount()
@@ -427,21 +401,9 @@ func (w *Wheel) NewTimerFunc(d time.Duration, f func(time.Time, ...interface{}),
 	return t
 }
 
-//相比NewTimerFunc, 不用创建Timer{}对象，直接创建WheelTimer对象。
-func (w *Wheel) NewWheelTimerFunc(d time.Duration, f func(time.Time, ...interface{}), arg ...interface{}) *WheelTimer {
+//相比NewTimerFunc, 不用创建Timer{}对象，直接创建*timer(*WheelTimer)对象。
+func (w *Wheel) NewWheelTimerFunc(d time.Duration, f func(time.Time, ...interface{}), arg ...interface{}) *timer {
 	t := w.newTimer(d, 0, f, arg...)
 	w.addTimer(t)
 	return t
-}
-
-func (t *timer) Stop() bool {
-	return t.w.delTimer(t)
-}
-
-func (t *timer) ResetTimer(d time.Duration, period time.Duration) bool {
-	return t.w.resetTimer(t, d, period)
-}
-
-func (t *timer) Release() {
-	t.w.releaseTimer(t)
 }
