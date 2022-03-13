@@ -207,6 +207,9 @@ func (w *Wheel) onTick() {
 
 func (w *Wheel) addTimer(t *timer) {
 	w.Lock()
+	if t.list != nil {
+		panic("repeat addTimer? timer still in wheel")
+	}
 	w.addTimerInternal(t)
 	w.timers++
 	w.Unlock()
