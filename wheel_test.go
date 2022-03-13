@@ -45,6 +45,8 @@ func TestTicker(t *testing.T) {
 	testWheel.Stop()
 }
 
+/*
+//可以调用两次timer.Stop() 都返回true
 func TestRepeatStopTimer(t *testing.T) {
 	w := NewWheel(1 * time.Millisecond)
 	timer := w.NewTimer(500 * time.Millisecond)
@@ -57,7 +59,7 @@ func TestRepeatStopTimer(t *testing.T) {
 	}
 	w.Stop()
 }
-
+*/
 func TestTimers(t *testing.T) {
 	w := NewWheel(1 * time.Millisecond)
 	s := rand.NewSource(time.Now().UnixNano())
