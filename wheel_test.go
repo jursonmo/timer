@@ -3,6 +3,7 @@ package timer
 import (
 	"context"
 	"math/rand"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -159,6 +160,13 @@ func TestStopTimer(t *testing.T) {
 		// for index := range timerMap {
 		// 	t.Logf("index:%d\n", index)
 		// }
+	}
+	if len(timerMap) != len(stopTimerMap) {
+		t.Fatalf("len(timerMap)=%d not equal len(stopTimerMap)=%d ", len(timerMap), len(stopTimerMap))
+	}
+	//timerMap 剩下的是中途被stop的timer
+	if !reflect.DeepEqual(timerMap, stopTimerMap) {
+		t.Fatalf("timerMap not equal stopTimerMap ")
 	}
 	testWheel.Stop()
 }
