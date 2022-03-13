@@ -1,6 +1,7 @@
 package timer
 
 import (
+	"context"
 	"math/rand"
 	"sync"
 	"testing"
@@ -8,16 +9,20 @@ import (
 )
 
 func TestTimer(t *testing.T) {
-	var testWheel = NewWheel(1 * time.Millisecond)
-	t1 := testWheel.NewTimer(500 * time.Millisecond)
+	tick := 1 * time.Millisecond
+	var w = NewWheel(tick)
+	d := 10 * time.Millisecond
+	timer := w.NewTimer(d)
 
-	before := time.Now()
-	<-t1.C
-
-	after := time.Now()
-
-	println(after.Sub(before).String())
-	testWheel.Stop()
+	ctx, _ := context.WithTimeout(context.Background(), d+2*tick)
+	//ctx 比timer 的timeout 时间多两个tick, 按道理timer 先超时
+	select {
+	case <-ctx.Done():
+		t.Fatalf("") //在低负载的情况下，如果ctx 先超时,说明timer 功能不正常
+	case <-timer.C:
+		break
+	}
+	w.Stop()
 }
 
 func TestTicker(t *testing.T) {
@@ -60,6 +65,25 @@ func TestRepeatStopTimer(t *testing.T) {
 	w.Stop()
 }
 */
+func TestResetTimer(t *testing.T) {
+	tick := 1 * time.Millisecond
+	w := NewWheel(tick)
+	d := 10 * time.Millisecond
+	timer := w.NewTimer(d)
+	if !timer.Stop() {
+		t.Fatalf("timer.Stop() fail")
+	}
+	//should Stop timer before Reset()
+	if !timer.Reset(d) {
+		t.Fatalf("timer.Reset() fail")
+	}
+	time.Sleep(d + 2*tick) //wait and timer should timeout and excuted
+	if timer.Reset(d) {
+		t.Fatalf("timer executed, timer.Reset() should be failed")
+	}
+	w.Stop()
+}
+
 func TestTimers(t *testing.T) {
 	w := NewWheel(1 * time.Millisecond)
 	s := rand.NewSource(time.Now().UnixNano())
