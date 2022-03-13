@@ -301,7 +301,7 @@ func (w *Wheel) getTimer() *timer {
 	return t
 }
 
-//并发不安全
+//并发不安全; todo:按道理只有在Stoped 状态和 timer 执行完的状态才能放回到池里(todo:timer需要加锁并修改状态)
 func (w *Wheel) releaseTimer(t *timer) {
 	if w.timerPool == nil {
 		return
