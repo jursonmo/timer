@@ -37,6 +37,10 @@ type timer struct {
 	arg     []interface{}
 }
 
+func Timers() int {
+	return defaultWheel.Timers()
+}
+
 func NewWheelTimerFunc(d time.Duration, f func(time.Time, ...interface{}), arg ...interface{}) *WheelTimer {
 	return defaultWheel.NewWheelTimerFunc(d, f, arg...)
 }
