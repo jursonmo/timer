@@ -80,7 +80,7 @@ func TestResetTimer(t *testing.T) {
 	}
 	time.Sleep(d + 2*tick) //wait and timer should timeout and excuted
 	if timer.Reset(d) {
-		t.Fatalf("timer executed, timer.Reset() should be failed")
+		t.Fatalf("timer should have executed, timer.Reset() should be failed")
 	}
 	w.Stop()
 }
@@ -124,8 +124,13 @@ func TestStopTimer(t *testing.T) {
 		delete(timerMap, index) //timer execute, delete from timerMap
 		mu.Unlock()
 	}
+	s := rand.NewSource(time.Now().UnixNano())
+	r := rand.New(s)
+
+	//创建1000个延迟范围在500-520 毫秒的定时器
 	for i := 0; i < n; i++ {
-		t := testWheel.NewWheelTimerFunc(time.Millisecond*500, f, i)
+		delay := 500 + r.Intn(20)
+		t := testWheel.NewWheelTimerFunc(time.Duration(delay)*time.Millisecond, f, i)
 		mu.Lock()
 		timerMap[i] = t
 		mu.Unlock()
