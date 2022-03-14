@@ -21,7 +21,25 @@ const (
 			 <--------------|
 			    deltimer
 */
-//目前只有stoped和NotReady的状态timer.Stop()才返回true,
+//目前只有stoped和NotReady的状态timer.Stop()才返回true, 这样才能ResetTimer
+/*
+	if t.Stop() {
+		t.ResetTimer(d, period)
+	}
+*/
+
+/*
+```go
+	1.
+	if t.Stop() {
+		t.Release() //timer 已经Stop,可以Release
+	}
+	2.
+	callback = func(time.Time, args ...interface{}) {
+		t.Release() //timer 的callback已经执行，可以Release
+	}
+```
+*/
 // todo:按道理timer excute完后可以Stop() 和 Reset(); 同时timer in sync.Pool 是不能做任何操作的
 
 type WheelTimer = timer
