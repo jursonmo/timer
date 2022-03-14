@@ -37,8 +37,8 @@ type timer struct {
 	arg     []interface{}
 }
 
-func NewWheelTimerFunc(d time.Duration, f func(time.Time, ...interface{}), arg ...interface{}) {
-	defaultWheel.NewWheelTimerFunc(d, f, arg...)
+func NewWheelTimerFunc(d time.Duration, f func(time.Time, ...interface{}), arg ...interface{}) *WheelTimer {
+	return defaultWheel.NewWheelTimerFunc(d, f, arg...)
 }
 
 func (t *timer) Stop() bool {
