@@ -21,9 +21,13 @@ func Tick(d time.Duration) <-chan time.Time {
 	return defaultWheel.Tick(d)
 }
 
-func (t *Ticker) Stop() {
+func (t *Ticker) Stop() bool {
 	//t.r.w.delTimer(t.r)
-	t.r.Stop()
+	return t.r.Stop()
+}
+
+func (t *Ticker) Release() {
+	t.r.Release()
 }
 
 func (t *Ticker) Reset(d time.Duration) {
