@@ -121,7 +121,7 @@ func TestStopTimer(t *testing.T) {
 		if ok {
 			t.Fatalf("index:%d timer:%s has Stop, but still exec", index, st.Info())
 		}
-		delete(timerMap, index)
+		delete(timerMap, index) //timer execute, delete from timerMap
 		mu.Unlock()
 	}
 	for i := 0; i < n; i++ {
@@ -164,7 +164,7 @@ func TestStopTimer(t *testing.T) {
 	if len(timerMap) != len(stopTimerMap) {
 		t.Fatalf("len(timerMap)=%d not equal len(stopTimerMap)=%d ", len(timerMap), len(stopTimerMap))
 	}
-	//timerMap 剩下的是中途被stop的timer
+	//timerMap 剩下的是没有得到执行的timer, 即中途被stop的timer
 	if !reflect.DeepEqual(timerMap, stopTimerMap) {
 		t.Fatalf("timerMap not equal stopTimerMap ")
 	}
