@@ -176,6 +176,10 @@ func (e *Entry) InitEntry() {
 	e.prev = nil
 }
 
+func (e *Entry) IsInit() bool {
+	return e.next == nil && e.prev == nil
+}
+
 func (e *Entry) Reset() {
 	e.next = nil
 	e.prev = nil

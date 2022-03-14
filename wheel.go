@@ -284,7 +284,10 @@ func (w *Wheel) releaseTimer(t *timer) {
 	}
 	//check timer
 	if t.list != nil {
-		log.Fatalf("timer is in wheel, can't be released")
+		panic("timer is in wheel, can't be released")
+	}
+	if !t.Entry.IsInit() {
+		panic("timer haven't executed")
 	}
 	//init timer
 	t.f = nil
