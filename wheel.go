@@ -97,6 +97,27 @@ func (w *Wheel) Timers() int {
 	return w.timers
 }
 
+func (w *Wheel) RealTimers() int {
+	w.Lock()
+	defer w.Unlock()
+	timersInWheel := 0
+	f := func(lists []ilist.List) int {
+		n := 0
+		for _, list := range lists {
+			for e := list.Front(); e != nil; e = e.Next() {
+				n++
+			}
+		}
+		return n
+	}
+	timersInWheel += f(w.tv5)
+	timersInWheel += f(w.tv4)
+	timersInWheel += f(w.tv3)
+	timersInWheel += f(w.tv2)
+	timersInWheel += f(w.tv1)
+	return timersInWheel
+}
+
 func (w *Wheel) addTimerInternal(t *timer) {
 	expires := t.expires
 	idx := t.expires - w.jiffies
@@ -136,7 +157,7 @@ func (w *Wheel) addTimerInternal(t *timer) {
 
 func (w *Wheel) cascade(tv []ilist.List, index int) int {
 	var t *timer
-	list := tv[index]
+	list := &tv[index]
 	for !list.Empty() {
 		e := list.Front()
 		list.Remove(e)

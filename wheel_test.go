@@ -103,6 +103,10 @@ func TestTimers(t *testing.T) {
 	if timers := w.Timers(); timers != 0 {
 		t.Fatalf("all timer should have executed, but there are %d timer in wheel\n", timers)
 	}
+
+	if w.Timers() != w.RealTimers() {
+		t.Fatalf("w.Timers():%d not eq w.RealTimers():%d \n", w.Timers(), w.RealTimers())
+	}
 	w.Stop()
 }
 
