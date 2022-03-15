@@ -24,7 +24,7 @@ func main() {
 		log.Fatal("should not ok")
 	}
 	//t1 have timeout , now we can release timer to pool
-	t1.Release()
+	t1.Release() //timer.Stop()成功的timer 和 已经超时的timer, 这样才能Release()
 
 	//check timer.Stop()
 	go func() {
