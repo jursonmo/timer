@@ -23,6 +23,8 @@ func main() {
 	if ok {
 		log.Fatal("should not ok")
 	}
+	//t1 have timeout , now we can release timer to pool
+	t1.Release()
 
 	//check timer.Stop()
 	go func() {
@@ -32,15 +34,15 @@ func main() {
 			log.Fatal("should ok")
 		}
 		before = time.Now()
-		<-t1.C //已经Stop 了，会一直阻塞
+		<-t2.C //t2 已经Stop 了，会一直阻塞
 		log.Fatal("can't be here")
 	}()
 
-	//check NewTimerFunc timer
+	//check NewWheelTimerFunc timer
 	arg0 := "arg0"
 	arg1 := "arg1"
 	start := time.Now()
-	var t3 *timer.Timer
+	var t3 *timer.WheelTimer
 	f := func(t time.Time, args ...interface{}) {
 		log.Printf("t3 func exec after %v\n", t.Sub(start))
 		if args[0].(string) != arg0 {
@@ -53,8 +55,9 @@ func main() {
 		if ok {
 			log.Fatal("t3 should not be Stop")
 		}
+		t3.Release()
 	}
-	t3 = testWheel.NewTimerFunc(time.Millisecond*10, f, arg0, arg1)
+	t3 = testWheel.NewWheelTimerFunc(time.Millisecond*10, f, arg0, arg1)
 
 	time.Sleep(time.Second)
 
