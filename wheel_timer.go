@@ -13,6 +13,7 @@ const (
 	Ready    = 2
 	Running  = 3
 	InPool   = 4
+	FromPool = InPool
 )
 
 /*				addtimer									release         Get()

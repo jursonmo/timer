@@ -214,7 +214,9 @@ func (w *Wheel) onTick() {
 
 			if t.period > 0 {
 				t.expires = t.period + atomic.LoadUint64(&w.jiffies)
-				w.addTimer(t)
+				if !w.addTimer(t) {
+					log.Printf("add period timer:%+v fail", t)
+				}
 			}
 		}
 		atomic.AddInt32(&w.taskRuning, -1)
@@ -226,14 +228,17 @@ func (w *Wheel) onTick() {
 	}
 }
 
-func (w *Wheel) addTimer(t *timer) {
+func (w *Wheel) addTimer(t *timer) bool {
 	w.Lock()
 	if t.list != nil {
+		//w.Unlock()
+		//return false
 		panic("repeat addTimer? timer still in wheel")
 	}
 	w.addTimerInternal(t)
 	w.timers++
 	w.Unlock()
+	return true
 }
 
 //目前只有stoped和NotReady的状态timer.Stop()才返回true,
@@ -262,8 +267,7 @@ func (w *Wheel) resetTimer(t *timer, when time.Duration, period time.Duration) b
 	t.expires = atomic.LoadUint64(&w.jiffies) + uint64(when/w.tick)
 	t.period = uint64(period / w.tick)
 
-	w.addTimer(t)
-	return true
+	return w.addTimer(t)
 }
 
 func (w *Wheel) newTimer(when time.Duration, period time.Duration,
@@ -291,8 +295,8 @@ func (w *Wheel) getTimer() *timer {
 	if t.list != nil || t.f != nil || t.arg != nil {
 		log.Fatalf("timer is not init state")
 	}
-	if t.state != Stoped && t.state != InPool {
-		log.Fatalf("t.state != Stoped && t.state != InPool")
+	if t.state != Stoped && t.state != FromPool {
+		log.Fatalf("t.state != Stoped && t.state != FromPool")
 	}
 	t.state = Stoped
 	return t
@@ -377,9 +381,11 @@ func (w *Wheel) TickFunc(d time.Duration, f func()) *Ticker {
 		r: w.newTimer(d, d, goFunc, f),
 	}
 
-	w.addTimer(t.r)
+	if w.addTimer(t.r) {
+		return t
+	}
 
-	return t
+	return nil
 
 }
 
@@ -388,9 +394,11 @@ func (w *Wheel) AfterFunc(d time.Duration, f func()) *Timer {
 		r: w.newTimer(d, 0, goFunc, f),
 	}
 
-	w.addTimer(t.r)
+	if w.addTimer(t.r) {
+		return t
+	}
 
-	return t
+	return nil
 }
 
 func (w *Wheel) NewTimer(d time.Duration) *Timer {
@@ -400,9 +408,11 @@ func (w *Wheel) NewTimer(d time.Duration) *Timer {
 		r: w.newTimer(d, 0, sendTime, c),
 	}
 
-	w.addTimer(t.r)
+	if w.addTimer(t.r) {
+		return t
+	}
 
-	return t
+	return nil
 }
 
 func (w *Wheel) NewTicker(d time.Duration) *Ticker {
@@ -412,9 +422,11 @@ func (w *Wheel) NewTicker(d time.Duration) *Ticker {
 		r: w.newTimer(d, d, sendTime, c),
 	}
 
-	w.addTimer(t.r)
+	if w.addTimer(t.r) {
+		return t
+	}
 
-	return t
+	return nil
 }
 
 //add by mo
@@ -423,14 +435,19 @@ func (w *Wheel) NewTimerFunc(d time.Duration, f func(time.Time, ...interface{}),
 		r: w.newTimer(d, 0, f, arg...),
 	}
 
-	w.addTimer(t.r)
+	if w.addTimer(t.r) {
+		return t
+	}
 
-	return t
+	return nil
 }
 
 //相比NewTimerFunc, 不用创建Timer{}对象，直接创建*timer(*WheelTimer)对象。
 func (w *Wheel) NewWheelTimerFunc(d time.Duration, f func(time.Time, ...interface{}), arg ...interface{}) *timer {
 	t := w.newTimer(d, 0, f, arg...)
-	w.addTimer(t)
-	return t
+	if w.addTimer(t) {
+		return t
+	}
+
+	return nil
 }
