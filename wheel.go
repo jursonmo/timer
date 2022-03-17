@@ -26,7 +26,7 @@ const (
 var defaultWheel *Wheel
 
 func init() {
-	defaultWheel = NewWheel(100 * time.Millisecond)
+	//defaultWheel = NewWheel(100 * time.Millisecond)
 }
 
 type Wheel struct {
