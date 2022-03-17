@@ -68,7 +68,7 @@ func main(){
 
 使用这个timer库时，如果想执行阻塞的任务，可以在callback 创建goroutine, 比如：
 ```go
-w := timer.NewWheel(1 * time.Millisecond)
+w := timer.NewWheelShard(1 * time.Millisecond)
 callback := func(t time.Time, args ...interface{}) {
         //new a groutine to do 
         go func() {
