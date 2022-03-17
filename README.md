@@ -39,7 +39,7 @@ func main(){
 	timerDone := make(chan struct{}, 1)
 	arg0 := "arg0"
 	arg1 := "arg1"
-	f := func(t time.Time, args ...interface{}) {
+	callback := func(t time.Time, args ...interface{}) {
 		log.Printf("t3 func exec after %v\n", t.Sub(start))
 		if args[0].(string) != arg0 {
 			log.Fatal("should arg0")
@@ -54,7 +54,7 @@ func main(){
 		t3.Release()
 		timerDone <- struct{}{}
 	}
-	t3 = w.NewWheelTimerFunc(d, f, arg0, arg1)
+	t3 = w.NewWheelTimerFunc(d, callback, arg0, arg1)
 
 	select {
 	case <-time.After(d + 2*tick):
