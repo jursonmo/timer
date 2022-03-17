@@ -10,19 +10,23 @@ type Timer struct {
 }
 
 func After(d time.Duration) <-chan time.Time {
-	return defaultWheel.After(d)
+	//return defaultWheel.After(d)
+	return defaultWheelShard.After(d)
 }
 
 func Sleep(d time.Duration) {
-	defaultWheel.Sleep(d)
+	//defaultWheel.Sleep(d)
+	defaultWheelShard.Sleep(d)
 }
 
 func AfterFunc(d time.Duration, f func()) *Timer {
-	return defaultWheel.AfterFunc(d, f)
+	//return defaultWheel.AfterFunc(d, f)
+	return defaultWheelShard.AfterFunc(d, f)
 }
 
 func NewTimer(d time.Duration) *Timer {
-	return defaultWheel.NewTimer(d)
+	//return defaultWheel.NewTimer(d)
+	return defaultWheelShard.NewTimer(d)
 }
 
 func (t *Timer) Reset(d time.Duration) bool {
@@ -42,7 +46,8 @@ func (t *Timer) Release() {
 
 // 需要传入callback的接口，应该用NewWheelTimerFunc 接口, 而不是NewTimerFunc
 func NewTimerFunc(d time.Duration, callback func(time.Time, ...interface{}), arg ...interface{}) *Timer {
-	return defaultWheel.NewTimerFunc(d, callback, arg...)
+	//return defaultWheel.NewTimerFunc(d, callback, arg...)
+	return defaultWheelShard.NewTimerFunc(d, callback, arg...)
 }
 
 func (t *Timer) Info() string {

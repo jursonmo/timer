@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"time"
 
@@ -8,6 +9,11 @@ import (
 )
 
 func main() {
+	testWheel()
+	testWheelShard()
+}
+
+func testWheel() {
 	var testWheel = timer.NewWheel(1 * time.Millisecond)
 
 	// check timer
@@ -60,7 +66,57 @@ func main() {
 	t3 = testWheel.NewWheelTimerFunc(time.Millisecond*10, f, arg0, arg1)
 
 	time.Sleep(time.Second)
+}
 
-	//-----------------
+func testWheelShard() {
+	tick := 1 * time.Millisecond
+	w := timer.NewWheelShard(tick)
+	t1 := w.NewTimer(time.Millisecond * 10)
+	start := time.Now()
+	<-t1.C
+	fmt.Printf("after %s timer timeout", time.Since(start))
 
+	d := time.Millisecond * 10
+	ticker := w.NewTicker(d)
+	n := 0
+	for t := range ticker.C {
+		n++
+		fmt.Printf("Millisecond:%d\n", t.UnixNano()/int64(time.Millisecond))
+		if n > 5 {
+			if ticker.Stop() {
+				ticker.Release()
+				break
+			} else {
+				panic(" ticker.Stop() fail")
+			}
+		}
+	}
+
+	var t3 *timer.WheelTimer
+	timerDone := make(chan struct{}, 1)
+	arg0 := "arg0"
+	arg1 := "arg1"
+	f := func(t time.Time, args ...interface{}) {
+		log.Printf("t3 func exec after %v\n", t.Sub(start))
+		if args[0].(string) != arg0 {
+			log.Fatal("should arg0")
+		}
+		if args[1].(string) != arg1 {
+			log.Fatal("should arg1")
+		}
+		ok := t3.Stop()
+		if ok {
+			log.Fatal("t3 should not be Stop")
+		}
+		t3.Release()
+		timerDone <- struct{}{}
+	}
+	t3 = w.NewWheelTimerFunc(d, f, arg0, arg1)
+
+	select {
+	case <-time.After(d + 2*tick):
+		panic("timer haven't done?")
+	case <-timerDone:
+		break
+	}
 }

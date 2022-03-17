@@ -57,11 +57,13 @@ type timer struct {
 }
 
 func Timers() int {
-	return defaultWheel.Timers()
+	//return defaultWheel.Timers()
+	return defaultWheelShard.Timers()
 }
 
 func NewWheelTimerFunc(d time.Duration, f func(time.Time, ...interface{}), arg ...interface{}) *WheelTimer {
-	return defaultWheel.NewWheelTimerFunc(d, f, arg...)
+	//return defaultWheel.NewWheelTimerFunc(d, f, arg...)
+	return defaultWheelShard.NewWheelTimerFunc(d, f, arg...)
 }
 
 func (t *timer) Stop() bool {

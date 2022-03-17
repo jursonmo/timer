@@ -200,8 +200,98 @@ func TestTimerPool(t *testing.T) {
 	}
 
 	//除非发生了gc, 不然timer Release 后，就会给 NewTimer。但是如果pool 功能正常，是不会发生gc 的。
+	//go version 1.14 以后的版本，需要两次gc才会把pool 的对象回收。
 	if (n - release + 1) != int(testWheel.PoolNewCount()) {
 		t.Fatalf("alloc:%d, pool new count:%d", n-release+1, testWheel.PoolNewCount())
 	}
 	t.Logf("alloc:%d, pool new count:%d", n-release+1, testWheel.PoolNewCount())
 }
+
+func BenchmarkWheelTimerFunc(b *testing.B) {
+	var w = NewWheel(1 * time.Millisecond)
+	// s := rand.NewSource(time.Now().UnixNano())
+	// r := rand.New(s)
+	f := func(t time.Time, args ...interface{}) {}
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		delay := 10
+		t := w.NewWheelTimerFunc(time.Duration(delay)*time.Millisecond, f, i)
+		if t.Stop() {
+			t.Release()
+		}
+		delay++
+	}
+}
+
+func BenchmarkWheelTimerParallel(b *testing.B) {
+	var w = NewWheel(1 * time.Millisecond)
+	// s := rand.NewSource(time.Now().UnixNano())
+	// r := rand.New(s)
+	f := func(t time.Time, args ...interface{}) {}
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			delay := 10
+			t := w.NewWheelTimerFunc(time.Duration(delay)*time.Millisecond, f, delay)
+			if t.Stop() {
+				t.Release()
+			}
+			delay++
+		}
+	})
+}
+
+func BenchmarkWheelShardTimerParallel(b *testing.B) {
+	var w = NewWheelShard(1 * time.Millisecond)
+	// s := rand.NewSource(time.Now().UnixNano())
+	// r := rand.New(s)
+	f := func(t time.Time, args ...interface{}) {}
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			delay := 10
+			t := w.NewWSTimerFunc(time.Duration(delay)*time.Millisecond, f, delay)
+			if t.Stop() {
+				t.Release()
+			}
+			delay++
+		}
+	})
+}
+
+/*
+MacBook-Pro:timer obc$ go test *.go -v
+=== RUN   TestTimer
+--- PASS: TestTimer (0.01s)
+=== RUN   TestTicker
+1647501212
+1647501213
+1647501214
+1647501215
+1647501216
+5.008177058s
+--- PASS: TestTicker (5.01s)
+=== RUN   TestResetTimer
+--- PASS: TestResetTimer (0.01s)
+=== RUN   TestTimers
+--- PASS: TestTimers (1.01s)
+=== RUN   TestStopTimer
+    wheel_test.go:168: len(timerMap):10
+--- PASS: TestStopTimer (1.00s)
+=== RUN   TestTimerPool
+    wheel_test.go:206: alloc:1, pool new count:1
+--- PASS: TestTimerPool (0.00s)
+PASS
+ok  	command-line-arguments	7.053s
+
+MacBook-Pro:timer obc$ go test -bench .  -benchmem
+goos: darwin
+goarch: amd64
+pkg: github.com/jursonmo/timer
+BenchmarkWheelTimerFunc-4            	 5765389	       201 ns/op	      24 B/op	       2 allocs/op
+BenchmarkWheelTimerParallel-4        	 4115576	       282 ns/op	      24 B/op	       2 allocs/op
+BenchmarkWheelShardTimerParallel-4   	12065094	        98.3 ns/op	      24 B/op	       2 allocs/op
+PASS
+ok  	github.com/jursonmo/timer	11.243s
+*/

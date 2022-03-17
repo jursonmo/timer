@@ -10,15 +10,18 @@ type Ticker struct {
 }
 
 func NewTicker(d time.Duration) *Ticker {
-	return defaultWheel.NewTicker(d)
+	//return defaultWheel.NewTicker(d)
+	return defaultWheelShard.NewTicker(d)
 }
 
 func TickFunc(d time.Duration, f func()) *Ticker {
-	return defaultWheel.TickFunc(d, f)
+	//return defaultWheel.TickFunc(d, f)
+	return defaultWheelShard.TickFunc(d, f)
 }
 
 func Tick(d time.Duration) <-chan time.Time {
-	return defaultWheel.Tick(d)
+	//return defaultWheel.Tick(d)
+	return defaultWheelShard.Tick(d)
 }
 
 func (t *Ticker) Stop() bool {
