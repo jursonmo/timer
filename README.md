@@ -2,6 +2,15 @@
 
 1. 使用
 ```go
+package main
+
+import (
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/jursonmo/timer"
+)
 func main(){
 	tick := 1 * time.Millisecond
 	w := timer.NewWheelShard(tick)
