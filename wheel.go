@@ -29,6 +29,16 @@ func init() {
 	//defaultWheel = NewWheel(100 * time.Millisecond)
 }
 
+/* add by mo:
+
+List              e               e               e
++----+          +----+          +----+          +----+
+|head|--------->|next|--------->|next|--------->|next|--->nil
+|    |    nil<--|prev|<---------|prev|<---------|prev|
+|tail|-->       +----+          +----+          +----+
++----+  |                                          ^
+        ------------------------------------------>|
+*/
 type Wheel struct {
 	sync.Mutex
 	jiffies    uint64

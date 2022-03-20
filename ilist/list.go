@@ -32,6 +32,16 @@ type List struct {
 	tail Linker
 }
 
+/* add by mo:
+
+List              e               e               e
++----+          +----+          +----+          +----+
+|head|--------->|next|--------->|next|--------->|next|--->nil
+|    |    nil<--|prev|<---------|prev|<---------|prev|
+|tail|-->       +----+          +----+          +----+
++----+  |                                          ^
+        ------------------------------------------>|
+*/
 // Reset resets list l to the empty state.
 func (l *List) Reset() {
 	l.head = nil
