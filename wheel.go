@@ -41,7 +41,9 @@ List              e               e               e
 */
 type Wheel struct {
 	sync.Mutex
-	jiffies    uint64
+	pad [7]uint64 //avoid share false ?
+	//pad   [cpu.CacheLinePadSize - unsafe.Sizeof(sync.Mutex)%cpu.CacheLinePadSize]byte
+	jiffies    uint64 //jiffies atomic 读比较多，写比较少，很多读的时候其实不需要同步，但是跟sync.Mutex组成了cacheline
 	timerPool  timerPooler
 	timers     int
 	taskRuning int32 //记录正在执行timer func 的goroutine 数量
