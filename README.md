@@ -12,15 +12,20 @@ import (
 	"github.com/jursonmo/timer"
 )
 func main(){
-	//用法一：创建定时器
 	tick := 1 * time.Millisecond
 	w := timer.NewWheelShard(tick)
+	//用法一：创建定时器
 	t1 := w.NewTimer(time.Millisecond * 10)
 	start := time.Now()
 	<-t1.C
 	fmt.Printf("after %s timer timeout", time.Since(start))
 
-	//用法二：创建ticker
+	//用法二：类似time.After()
+	start = time.Now()
+	<-w.After(time.Millisecond * 10):
+	fmt.Printf("w.After: %s ", time.Since(start))
+
+	//用法三：创建ticker
 	d := time.Millisecond * 10
 	ticker := w.NewTicker(d)
 	n := 0
@@ -36,8 +41,14 @@ func main(){
 			}
 		}
 	}
+	
+	//用法四：类似原生time 库的AfterFunc
+	start = time.Now()
+	w.AfterFunc(time.Millisecond * 10, func(){
+		fmt.Printf("in w.AfterFunc handler, time elapse:%s\n", time.Since(start))
+	})
 
-	//用法三：创建“自定义回调函数”的定时器, 类似原生time 库的AfterFunc
+	//用法五：创建“自定义回调函数”的定时器, 
 	var t3 *timer.WheelTimer
 	timerDone := make(chan struct{}, 1)
 	arg0 := "arg0"
