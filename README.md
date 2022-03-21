@@ -12,6 +12,7 @@ import (
 	"github.com/jursonmo/timer"
 )
 func main(){
+	//用法一：创建定时器
 	tick := 1 * time.Millisecond
 	w := timer.NewWheelShard(tick)
 	t1 := w.NewTimer(time.Millisecond * 10)
@@ -19,6 +20,7 @@ func main(){
 	<-t1.C
 	fmt.Printf("after %s timer timeout", time.Since(start))
 
+	//用法二：创建ticker
 	d := time.Millisecond * 10
 	ticker := w.NewTicker(d)
 	n := 0
@@ -35,6 +37,7 @@ func main(){
 		}
 	}
 
+	//用法三：创建“自定义回调函数”的定时器, 类似原生time 库的AfterFunc
 	var t3 *timer.WheelTimer
 	timerDone := make(chan struct{}, 1)
 	arg0 := "arg0"
@@ -47,10 +50,10 @@ func main(){
 		if args[1].(string) != arg1 {
 			log.Fatal("should arg1")
 		}
-		ok := t3.Stop()
-		if ok {
-			log.Fatal("t3 should not be Stop")
-		}
+		// ok := t3.Stop()
+		// if ok {
+		// 	log.Fatal("t3 should not be Stop")
+		// }
 		t3.Release()
 		timerDone <- struct{}{}
 	}
@@ -84,4 +87,4 @@ w.NewWheelTimerFunc(time.Millisecond*100, callback, "arg1", "arg2")
 ##### v1.1.x 在时间轮里，用链表来组织timer,方便正确的对timer 进行增删，同时用sync.Pool 来缓存timer对象.
 ##### v1.0.x 是在https://github.com/siddontang/go/tree/master/time2 基础上修改了一些bug , 但仍然有bug，可以运行测试用例TestStopTimer: go test *.go -test.run TestStopTimer 就会发现Stop timer 返回true,但实际上没有真正Stop 掉。原因已经找到，代码：https://github.com/jursonmo/timer/blob/f6cdf1071e4c9b916a5a526104c1f864f8ad4485/wheel.go#L120 有注释。
 
-##### [初次对timer 的修改](https://github.com/jursonmo/gocode/tree/master/src/timer)
+##### [初次对timer 的修改](https://github.com/jursonmo/gocode/tree/master/src/timer), 正如最后所说的，用slice 来当timer 列表，其实不利于timer的删除，最好还是用ilist, 添加删除都很方便。类似于内核链表做法。
