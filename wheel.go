@@ -1,12 +1,12 @@
 package timer
 
 import (
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/jursonmo/timer/ilist"
+	"github.com/jursonmo/timer/log"
 )
 
 const (
@@ -17,6 +17,8 @@ const (
 
 	tvn_mask uint64 = 63  //tvn_size - 1
 	tvr_mask uint64 = 255 //tvr_size -1
+
+	maxTimerCbTake = 10 * time.Millisecond
 )
 
 const (
@@ -41,6 +43,7 @@ List              e               e               e
 */
 type Wheel struct {
 	sync.Mutex
+	log log.Logger
 	pad [7]uint64 //avoid share false ?
 	//pad   [cpu.CacheLinePadSize - unsafe.Sizeof(sync.Mutex)%cpu.CacheLinePadSize]byte
 	jiffies    uint64 //jiffies atomic 读比较多，写比较少，很多读的时候其实不需要同步，但是跟sync.Mutex组成了cacheline
@@ -71,6 +74,11 @@ func WithTimerPool(p timerPooler) Option {
 		w.timerPool = p
 	}
 }
+func WithLogger(l log.Logger) Option {
+	return func(w *Wheel) {
+		w.log = l
+	}
+}
 
 //tick is the time for a jiffies
 func NewWheel(tick time.Duration, opts ...Option) *Wheel {
@@ -78,7 +86,9 @@ func NewWheel(tick time.Duration, opts ...Option) *Wheel {
 	for _, opt := range opts {
 		opt(w)
 	}
-
+	if w.log == nil {
+		w.log = log.DefaultLog
+	}
 	if w.timerPool == nil {
 		w.timerPool = NewTimerSyncPool()
 	}
@@ -211,23 +221,27 @@ func (w *Wheel) onTick() {
 	//如果w.tick是10ms, 那么w.taskRuning 不能大于5, 即允许还有5个任务(goroutine)在执行timer func
 	running := atomic.LoadInt32(&w.taskRuning)
 	if w.tick*time.Duration(running) > (time.Millisecond * 50) {
-		log.Printf("warnning: %d task still running\n", running)
+		w.log.Warnf("warnning: %d task still running\n", running)
 	}
 
 	f := func(list ilist.List) {
-		now := time.Now()
 		for !list.Empty() {
 			e := list.Front()
 			list.Remove(e)
 			e.Reset()
 			t := e.(*timer)
 			t.state = Running
-			t.f(now, t.arg...)
+			start := time.Now()
+			t.f(start, t.arg...)
 
+			//check the time of the callback taken
+			if take := time.Since(start); take > maxTimerCbTake {
+				w.log.Warnf("timer:%s cb run take:%v, over maxTimerCbTake:%v", t, take, maxTimerCbTake)
+			}
 			if t.period > 0 {
 				t.expires = t.period + atomic.LoadUint64(&w.jiffies)
 				if !w.addTimer(t) {
-					log.Printf("add period timer:%+v fail", t)
+					w.log.Errorf("add period timer:%+v fail", t)
 				}
 			}
 		}
@@ -245,7 +259,7 @@ func (w *Wheel) addTimer(t *timer) bool {
 	if t.list != nil {
 		//w.Unlock()
 		//return false
-		panic("repeat addTimer? timer still in wheel")
+		w.log.Fatalf("repeat addTimer? timer still in wheel")
 	}
 	w.addTimerInternal(t)
 	w.timers++
@@ -305,10 +319,10 @@ func (w *Wheel) getTimer() *timer {
 	t := w.timerPool.Get()
 	//check timer and reset
 	if t.list != nil || t.f != nil || t.arg != nil {
-		log.Fatalf("timer is not init state")
+		w.log.Fatalf("timer is not init state")
 	}
 	if t.state != Stoped && t.state != FromPool {
-		log.Fatalf("t.state != Stoped && t.state != FromPool")
+		w.log.Fatalf("t.state != Stoped && t.state != FromPool")
 	}
 	t.state = Stoped
 	return t
@@ -321,10 +335,10 @@ func (w *Wheel) releaseTimer(t *timer) {
 	}
 	//check timer
 	if t.list != nil {
-		panic("timer is in wheel, can't be released")
+		w.log.Fatalf("timer is in wheel, can't be released")
 	}
 	if !t.Entry.IsInit() {
-		panic("timer haven't executed")
+		w.log.Fatalf("timer haven't executed")
 	}
 	//init timer
 	t.f = nil
