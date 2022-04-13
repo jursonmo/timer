@@ -10,6 +10,7 @@ type Logger interface {
 	Fatalf(format string, a ...interface{})
 }
 
+var _ Logger = (*defaultLog)(nil) //check defaultLog struct{} implement Logger
 var DefaultLog = (*defaultLog)(nil)
 
 type defaultLog struct{}
