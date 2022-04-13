@@ -15,6 +15,16 @@ func init() {
 	defaultWheelShard = NewWheelShard(100 * time.Millisecond)
 }
 
+func StopDefaultWheelShard() {
+	defaultWheelShard.Stop()
+}
+
+func (ws *wheel_shard) Stop() {
+	for i := 0; i < len(ws.wheels); i++ {
+		ws.wheels[i].Stop()
+	}
+}
+
 func NewWheelShard(tick time.Duration, opts ...Option) *wheel_shard {
 	pnum := runtime.GOMAXPROCS(0)
 	wheels := make([]*Wheel, pnum)
