@@ -1,6 +1,7 @@
 package timer
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -43,8 +44,9 @@ List              e               e               e
 */
 type Wheel struct {
 	sync.Mutex
-	log log.Logger
-	pad [7]uint64 //avoid share false ?
+	name string
+	log  log.Logger
+	pad  [7]uint64 //avoid share false ?
 	//pad   [cpu.CacheLinePadSize - unsafe.Sizeof(sync.Mutex)%cpu.CacheLinePadSize]byte
 	jiffies    uint64 //jiffies atomic 读比较多，写比较少，很多读的时候其实不需要同步，但是跟sync.Mutex组成了cacheline
 	timerPool  timerPooler
@@ -64,10 +66,17 @@ type Wheel struct {
 
 	tick time.Duration
 
-	quit chan struct{}
+	quit  chan struct{}
+	close bool
 }
 
 type Option func(*Wheel)
+
+func WithName(name string) Option {
+	return func(w *Wheel) {
+		w.name = name
+	}
+}
 
 func WithTimerPool(p timerPooler) Option {
 	return func(w *Wheel) {
@@ -78,6 +87,10 @@ func WithLogger(l log.Logger) Option {
 	return func(w *Wheel) {
 		w.log = l
 	}
+}
+
+func (w *Wheel) String() string {
+	return fmt.Sprintf("wheel:%s, tick:%v, timers:%v, taskRuning:%d, close:%v", w.name, w.tick, w.Timers(), atomic.LoadInt32(&w.taskRuning), w.close)
 }
 
 //tick is the time for a jiffies
@@ -91,6 +104,9 @@ func NewWheel(tick time.Duration, opts ...Option) *Wheel {
 	}
 	if w.timerPool == nil {
 		w.timerPool = NewTimerSyncPool()
+	}
+	if w.name == "" {
+		w.name = fmt.Sprintf("create at %v", time.Now())
 	}
 
 	w.quit = make(chan struct{})
@@ -356,6 +372,7 @@ func (w *Wheel) PoolNewCount() int64 {
 }
 
 func (w *Wheel) run() {
+	defer w.log.Infof("Wheel quit, %v", w)
 	ticker := time.NewTicker(w.tick)
 	defer ticker.Stop()
 
@@ -371,6 +388,7 @@ func (w *Wheel) run() {
 
 func (w *Wheel) Stop() {
 	close(w.quit)
+	w.close = true
 }
 
 func sendTime(t time.Time, arg ...interface{}) {

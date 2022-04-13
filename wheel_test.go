@@ -7,11 +7,14 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"go.uber.org/goleak"
 )
 
 func TestTimer(t *testing.T) {
 	tick := 1 * time.Millisecond
 	var w = NewWheel(tick)
+	defer w.Stop()
 	d := 10 * time.Millisecond
 	timer := w.NewTimer(d)
 
@@ -23,11 +26,11 @@ func TestTimer(t *testing.T) {
 	case <-timer.C:
 		break
 	}
-	w.Stop()
 }
 
 func TestTicker(t *testing.T) {
 	var testWheel = NewWheel(1 * time.Millisecond)
+	defer testWheel.Stop()
 	wait := make(chan struct{}, 100)
 	i := 0
 	f := func() {
@@ -48,7 +51,6 @@ func TestTicker(t *testing.T) {
 	after := time.Now()
 
 	println(after.Sub(before).String())
-	testWheel.Stop()
 }
 
 /*
@@ -69,6 +71,8 @@ func TestRepeatStopTimer(t *testing.T) {
 func TestResetTimer(t *testing.T) {
 	tick := 1 * time.Millisecond
 	w := NewWheel(tick)
+	defer w.Stop()
+
 	d := 10 * time.Millisecond
 	timer := w.NewTimer(d)
 	if !timer.Stop() {
@@ -82,11 +86,12 @@ func TestResetTimer(t *testing.T) {
 	if timer.Reset(d) {
 		t.Fatalf("timer should have executed, timer.Reset() should be failed")
 	}
-	w.Stop()
 }
 
 func TestTimers(t *testing.T) {
 	w := NewWheel(1 * time.Millisecond)
+	defer w.Stop()
+
 	s := rand.NewSource(time.Now().UnixNano())
 	r := rand.New(s)
 
@@ -107,12 +112,13 @@ func TestTimers(t *testing.T) {
 	if w.Timers() != w.RealTimers() {
 		t.Fatalf("w.Timers():%d not eq w.RealTimers():%d \n", w.Timers(), w.RealTimers())
 	}
-	w.Stop()
 }
 
 //go test *.go -test.run TestStopTimer
 func TestStopTimer(t *testing.T) {
 	var testWheel = NewWheel(1 * time.Millisecond)
+	defer testWheel.Stop()
+
 	//n := 3000
 	n := 1000
 	var mu sync.Mutex
@@ -177,11 +183,13 @@ func TestStopTimer(t *testing.T) {
 	if !reflect.DeepEqual(timerMap, stopTimerMap) {
 		t.Fatalf("timerMap not equal stopTimerMap ")
 	}
-	testWheel.Stop()
+
 }
 
 func TestTimerPool(t *testing.T) {
 	var testWheel = NewWheel(2*time.Millisecond, WithTimerPool(NewTimerSyncPool()))
+	defer testWheel.Stop()
+
 	if testWheel.PoolNewCount() == -1 { //wheel timerPool have not implements PoolNewCount
 		t.Logf("wheel timerPool have not implements PoolNewCount, can't TestTimerPool")
 		return
@@ -209,6 +217,7 @@ func TestTimerPool(t *testing.T) {
 
 func BenchmarkWheelTimerFunc(b *testing.B) {
 	var w = NewWheel(1 * time.Millisecond)
+	defer w.Stop()
 	// s := rand.NewSource(time.Now().UnixNano())
 	// r := rand.New(s)
 	f := func(t time.Time, args ...interface{}) {}
@@ -226,6 +235,7 @@ func BenchmarkWheelTimerFunc(b *testing.B) {
 
 func BenchmarkWheelTimerParallel(b *testing.B) {
 	var w = NewWheel(1 * time.Millisecond)
+	defer w.Stop()
 	// s := rand.NewSource(time.Now().UnixNano())
 	// r := rand.New(s)
 	f := func(t time.Time, args ...interface{}) {}
@@ -244,6 +254,7 @@ func BenchmarkWheelTimerParallel(b *testing.B) {
 
 func BenchmarkWheelShardTimerParallel(b *testing.B) {
 	var w = NewWheelShard(1 * time.Millisecond)
+	defer w.Stop()
 	// s := rand.NewSource(time.Now().UnixNano())
 	// r := rand.New(s)
 	f := func(t time.Time, args ...interface{}) {}
@@ -258,6 +269,16 @@ func BenchmarkWheelShardTimerParallel(b *testing.B) {
 			delay++
 		}
 	})
+}
+
+//检测之前的所有测试用例是否有泄露, 注意把 TestGoroutineLeak 放在所有测试用例的最后
+func TestGoroutineLeak(t *testing.T) {
+	defer func() {
+		time.Sleep(time.Second)
+		goleak.VerifyNone(t) //检测之前的所有测试用例是否有泄露
+	}()
+
+	StopDefaultWheelShard() //需要 stop 默认的时间轮
 }
 
 /*
