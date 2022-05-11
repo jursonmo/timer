@@ -20,7 +20,7 @@ func main(){
 	<-t1.C
 	fmt.Printf("after %s timer timeout", time.Since(start))
 
-	//用法二：类似time.After()
+	//用法二：类似原生time 库time.After()
 	start = time.Now()
 	<-w.After(time.Millisecond * 10):
 	fmt.Printf("w.After: %s ", time.Since(start))
@@ -78,7 +78,7 @@ func main(){
     }
 }
 ```
-2. go 标准库timer.AfterFunc(d, callback) 最终会创建新的goroutine 来执行回调函数callback，如果timer.AfterFun调用过多的话，就会产生很多goroutine,性能下降，如果callback是非阻塞的，其实完全可以不用每个timer 都创建新的goroutine 来执行回调函数callback。
+2. go 标准库timer.AfterFunc(d, callback) 最终会创建新的goroutine 来执行回调函数callback，如果timer.AfterFun调用过多的话，就会产生很多goroutine,性能下降，如果callback是非阻塞的，其实完全可以不需要为每个timer 都创建新的goroutine 来执行回调函数callback，在少数的goroutine 里顺序执行timer callback 就行。
 
 使用这个timer库时，如果想执行阻塞的任务，可以在callback 创建goroutine, 比如：
 ```go
