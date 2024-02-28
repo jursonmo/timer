@@ -36,8 +36,8 @@ func NewWheelShard(tick time.Duration, opts ...Option) *wheel_shard {
 }
 
 //GetPid() 获取MPG 的Pid, 从而获取对应的wheel, 但是在wheel addTimer() 还是要加锁
-//因为当前goroutine 可能会被调度到其他其他系统线程M 处理，也就是可能有两个不同M下的goroutine
-//同时操作同一个wheel, 所以wheel 的操作需要加锁
+//因为当前goroutine 是可能被调度到P处理,任何goroutine代码都需要在P上运行，P的数量觉得程序的并行数量,
+//也就是可能有两个不同M下的goroutine, 同时操作同一个wheel, 所以wheel 的操作需要加锁
 // wheel_shard 只是尽量减少加锁时的竞争而已，不能完全避免锁竞争。
 func (ws *wheel_shard) NewWSTimerFunc(d time.Duration, f func(time.Time, ...interface{}), arg ...interface{}) *WheelTimer {
 	pid := GetPid()
