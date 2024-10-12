@@ -23,7 +23,7 @@ const (
 )
 
 const (
-//defaultTimerSize = 128
+// defaultTimerSize = 128
 )
 
 var defaultWheel *Wheel
@@ -32,7 +32,8 @@ func init() {
 	//defaultWheel = NewWheel(100 * time.Millisecond)
 }
 
-/* add by mo:
+/*
+	add by mo:
 
 List              e               e               e
 +----+          +----+          +----+          +----+
@@ -40,7 +41,7 @@ List              e               e               e
 |    |    nil<--|prev|<---------|prev|<---------|prev|
 |tail|-->       +----+          +----+          +----+
 +----+  |                                          ^
-        ------------------------------------------>|
+//      ------------------------------------------>|
 */
 type Wheel struct {
 	sync.Mutex
@@ -93,7 +94,7 @@ func (w *Wheel) String() string {
 	return fmt.Sprintf("wheel:%s, tick:%v, timers:%v, taskRuning:%d, close:%v", w.name, w.tick, w.Timers(), atomic.LoadInt32(&w.taskRuning), w.close)
 }
 
-//tick is the time for a jiffies
+// tick is the time for a jiffies
 func NewWheel(tick time.Duration, opts ...Option) *Wheel {
 	w := new(Wheel)
 	for _, opt := range opts {
@@ -283,7 +284,7 @@ func (w *Wheel) addTimer(t *timer) bool {
 	return true
 }
 
-//目前只有stoped和NotReady的状态timer.Stop()才返回true,
+// 目前只有stoped和NotReady的状态timer.Stop()才返回true,
 // todo:那道理timer excute完后可以Stop() 和 Reset(); 同时timer in sync.Pool 是不能做任何操作的
 func (w *Wheel) delTimer(t *timer) bool {
 	w.Lock()
@@ -296,15 +297,16 @@ func (w *Wheel) delTimer(t *timer) bool {
 		t.Entry.Reset()
 		t.list = nil
 		t.state = Stoped
+		w.timers-- //主动删除timer时，需要减少timers
 		return true
 	}
 	return false
 }
 
 func (w *Wheel) resetTimer(t *timer, when time.Duration, period time.Duration) bool {
-	b := w.delTimer(t)
-	if !b {
-		return b
+	ok := w.delTimer(t)
+	if !ok {
+		return false
 	}
 	t.expires = atomic.LoadUint64(&w.jiffies) + uint64(when/w.tick)
 	t.period = uint64(period / w.tick)
@@ -344,7 +346,7 @@ func (w *Wheel) getTimer() *timer {
 	return t
 }
 
-//并发不安全; todo:按道理只有在Stoped 状态和 timer 执行完的状态才能释放(放回到池里).(todo:timer需要加锁并修改状态)
+// 并发不安全; todo:按道理只有在Stoped 状态和 timer 执行完的状态才能释放(放回到池里).(todo:timer需要加锁并修改状态)
 func (w *Wheel) releaseTimer(t *timer) {
 	if w.timerPool == nil {
 		return
@@ -363,7 +365,7 @@ func (w *Wheel) releaseTimer(t *timer) {
 	w.timerPool.Put(t)
 }
 
-//如果没有实现PoolNewCounter,返回 -1
+// 如果没有实现PoolNewCounter,返回 -1
 func (w *Wheel) PoolNewCount() int64 {
 	if counter, ok := w.timerPool.(PoolNewCounter); ok {
 		return counter.PoolNewCount()
@@ -473,7 +475,7 @@ func (w *Wheel) NewTicker(d time.Duration) *Ticker {
 	return nil
 }
 
-//add by mo
+// add by mo
 func (w *Wheel) NewTimerFunc(d time.Duration, f func(time.Time, ...interface{}), arg ...interface{}) *Timer {
 	t := &Timer{
 		r: w.newTimer(d, 0, f, arg...),
@@ -486,7 +488,7 @@ func (w *Wheel) NewTimerFunc(d time.Duration, f func(time.Time, ...interface{}),
 	return nil
 }
 
-//相比NewTimerFunc, 不用创建Timer{}对象，直接创建*timer(*WheelTimer)对象。
+// 相比NewTimerFunc, 不用创建Timer{}对象，直接创建*timer(*WheelTimer)对象。
 func (w *Wheel) NewWheelTimerFunc(d time.Duration, f func(time.Time, ...interface{}), arg ...interface{}) *timer {
 	t := w.newTimer(d, 0, f, arg...)
 	if w.addTimer(t) {
