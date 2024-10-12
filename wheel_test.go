@@ -55,18 +55,19 @@ func TestTicker(t *testing.T) {
 
 /*
 //可以调用两次timer.Stop() 都返回true
-func TestRepeatStopTimer(t *testing.T) {
-	w := NewWheel(1 * time.Millisecond)
-	timer := w.NewTimer(500 * time.Millisecond)
 
-	if !timer.Stop() {
-		t.Fatalf("t.Stop() fail")
+	func TestRepeatStopTimer(t *testing.T) {
+		w := NewWheel(1 * time.Millisecond)
+		timer := w.NewTimer(500 * time.Millisecond)
+
+		if !timer.Stop() {
+			t.Fatalf("t.Stop() fail")
+		}
+		if timer.Stop() {
+			t.Fatalf("shouldn't repeat Stop() timer")
+		}
+		w.Stop()
 	}
-	if timer.Stop() {
-		t.Fatalf("shouldn't repeat Stop() timer")
-	}
-	w.Stop()
-}
 */
 func TestResetTimer(t *testing.T) {
 	tick := 1 * time.Millisecond
@@ -114,7 +115,7 @@ func TestTimers(t *testing.T) {
 	}
 }
 
-//go test *.go -test.run TestStopTimer
+// go test *.go -test.run TestStopTimer
 func TestStopTimer(t *testing.T) {
 	var testWheel = NewWheel(1 * time.Millisecond)
 	defer testWheel.Stop()
@@ -231,6 +232,13 @@ func BenchmarkWheelTimerFunc(b *testing.B) {
 		}
 		delay++
 	}
+
+	if w.Timers() != 0 {
+		b.Fatalf("w.Timers():%d not eq 0\n", w.Timers())
+	}
+	if w.RealTimers() != 0 {
+		b.Fatalf("w.RealTimers():%d not eq 0\n", w.RealTimers())
+	}
 }
 
 func BenchmarkWheelTimerParallel(b *testing.B) {
@@ -240,6 +248,8 @@ func BenchmarkWheelTimerParallel(b *testing.B) {
 	// r := rand.New(s)
 	f := func(t time.Time, args ...interface{}) {}
 
+	//log.Printf("------------start----------")
+	b.Log("------------start----------")
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			delay := 10
@@ -250,6 +260,12 @@ func BenchmarkWheelTimerParallel(b *testing.B) {
 			delay++
 		}
 	})
+	if w.Timers() != 0 {
+		b.Fatalf("w.Timers():%d not eq 0\n", w.Timers())
+	}
+	if w.RealTimers() != 0 {
+		b.Fatalf("w.RealTimers():%d not eq 0\n", w.RealTimers())
+	}
 }
 
 func BenchmarkWheelShardTimerParallel(b *testing.B) {
@@ -269,9 +285,12 @@ func BenchmarkWheelShardTimerParallel(b *testing.B) {
 			delay++
 		}
 	})
+	if w.Timers() != 0 {
+		b.Fatalf("w.Timers():%d not eq 0\n", w.Timers())
+	}
 }
 
-//检测之前的所有测试用例是否有泄露, 注意把 TestGoroutineLeak 放在所有测试用例的最后
+// 检测之前的所有测试用例是否有泄露, 注意把 TestGoroutineLeak 放在所有测试用例的最后
 func TestGoroutineLeak(t *testing.T) {
 	defer func() {
 		time.Sleep(time.Second)
@@ -282,6 +301,11 @@ func TestGoroutineLeak(t *testing.T) {
 }
 
 /*
+// 测试单个测试用例
+go test -v *.go -test.run TestStopTimer
+go test -v *.go -run TestStopTimer
+
+//测试 所有测试用例
 MacBook-Pro:timer obc$ go test *.go -v
 === RUN   TestTimer
 --- PASS: TestTimer (0.01s)
