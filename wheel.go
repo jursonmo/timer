@@ -300,8 +300,8 @@ func (w *Wheel) delTimer(t *timer) bool {
 		t.list.Remove(t)
 		t.Entry.Reset()
 		t.list = nil
-		t.state = Stoped
-		w.timers-- //主动删除timer时，需要减少timers
+		t.state = Stoped //有w.Lock()和 t.list != nil 的保护, 所以t.state不会被onTick()任务并发修改状态。
+		w.timers--       //主动删除timer时，需要减少timers
 		return true
 	}
 	return false
