@@ -11,6 +11,7 @@ import (
 	"go.uber.org/goleak"
 )
 
+// 跑测试用例: go test -v .
 func TestTimer(t *testing.T) {
 	tick := 1 * time.Millisecond
 	var w = NewWheel(tick)
