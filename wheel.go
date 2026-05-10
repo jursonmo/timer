@@ -295,6 +295,7 @@ func (w *Wheel) delTimer(t *timer) bool {
 	if t.state == Stoped {
 		return true
 	}
+	//如果这个timer 正准备被执行了, t.list 会被置为nil。所以t.list != nil 就说明这个timer 还没有准备被执行，可以删除。
 	if t.list != nil /*&& t.state == NotReady*/ {
 		t.list.Remove(t)
 		t.Entry.Reset()
