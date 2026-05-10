@@ -4,6 +4,8 @@ import (
 	_ "unsafe"
 )
 
+////go:linkname 调 runtime 私有 API，Go 版本兼容性风险很高。
+
 //go:linkname procPin runtime.procPin
 func procPin() int
 
