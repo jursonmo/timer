@@ -96,6 +96,9 @@ func (w *Wheel) String() string {
 
 // tick is the time for a jiffies
 func NewWheel(tick time.Duration, opts ...Option) *Wheel {
+	if tick <= 0 {
+		panic("tick must be greater than 0")
+	}
 	w := new(Wheel)
 	for _, opt := range opts {
 		opt(w)
