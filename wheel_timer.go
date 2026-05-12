@@ -50,7 +50,7 @@ type timer struct {
 	w    *Wheel
 
 	expires uint64
-	period  uint64
+	period  uint64 //表示这个 timer 是否是“周期性定时器”，以及每次重新调度时隔多少个 tick。
 	state   int
 	f       func(time.Time, ...interface{})
 	arg     []interface{}

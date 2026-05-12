@@ -160,6 +160,14 @@ func (w *Wheel) RealTimers() int {
 	return timersInWheel
 }
 
+// t.period 和 t.expires 改用向上取整
+func durationToTicks(d, tick time.Duration) uint64 {
+	if d <= 0 {
+		return 0
+	}
+	return uint64((d-1)/tick + 1)
+}
+
 func (w *Wheel) addTimerInternal(t *timer) {
 	expires := t.expires
 	idx := t.expires - w.jiffies
@@ -312,8 +320,11 @@ func (w *Wheel) resetTimer(t *timer, when time.Duration, period time.Duration) b
 	if !ok {
 		return false
 	}
-	t.expires = atomic.LoadUint64(&w.jiffies) + uint64(when/w.tick)
-	t.period = uint64(period / w.tick)
+	// t.expires = atomic.LoadUint64(&w.jiffies) + uint64(when/w.tick)
+	// t.period = uint64(period / w.tick)
+	//向上取整
+	t.expires = atomic.LoadUint64(&w.jiffies) + durationToTicks(when, w.tick)
+	t.period = durationToTicks(period, w.tick)
 
 	return w.addTimer(t)
 }
@@ -323,8 +334,11 @@ func (w *Wheel) newTimer(when time.Duration, period time.Duration,
 	//t := new(timer)
 	t := w.getTimer()
 
-	t.expires = atomic.LoadUint64(&w.jiffies) + uint64(when/w.tick)
-	t.period = uint64(period / w.tick)
+	// t.expires = atomic.LoadUint64(&w.jiffies) + uint64(when/w.tick)
+	// t.period = uint64(period / w.tick)
+	//向上取整
+	t.expires = atomic.LoadUint64(&w.jiffies) + durationToTicks(when, w.tick)
+	t.period = durationToTicks(period, w.tick)
 
 	t.f = f
 	t.arg = arg
