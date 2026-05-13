@@ -41,7 +41,7 @@ func waitTime(t *testing.T, ch <-chan time.Time, timeout time.Duration, name str
 	case tm := <-ch:
 		return tm
 	case <-time.After(timeout):
-		t.Fatalf("timed out waiting for %s after %s", name, timeout)
+		t.Fatalf("timed out waiting for %s after %s, expected event before timeout", name, timeout)
 		return time.Time{}
 	}
 }
@@ -52,7 +52,7 @@ func waitStruct(t *testing.T, ch <-chan struct{}, timeout time.Duration, name st
 	select {
 	case <-ch:
 	case <-time.After(timeout):
-		t.Fatalf("timed out waiting for %s after %s", name, timeout)
+		t.Fatalf("timed out waiting for %s after %s, expected event before timeout", name, timeout)
 	}
 }
 
@@ -61,7 +61,7 @@ func assertNoTime(t *testing.T, ch <-chan time.Time, within time.Duration, name 
 
 	select {
 	case tm := <-ch:
-		t.Fatalf("%s fired unexpectedly at %v", name, tm)
+		t.Fatalf("%s fired unexpectedly at %v, expected no event within %s", name, tm, within)
 	case <-time.After(within):
 	}
 }
@@ -76,7 +76,7 @@ func requireEventually(t *testing.T, timeout time.Duration, check func() bool, m
 		}
 		time.Sleep(time.Millisecond)
 	}
-	t.Fatalf("condition not met within %s: %s", timeout, msg)
+	t.Fatalf("condition not met within %s: %s, expected condition to become true", timeout, msg)
 }
 
 func assertWheelEmpty(t *testing.T, w *Wheel) {
@@ -93,22 +93,22 @@ func assertWheelEmpty(t *testing.T, w *Wheel) {
 func TestDurationToTicksCeilsAndHandlesNonPositiveDurations(t *testing.T) {
 	tick := 10 * time.Millisecond
 	tests := []struct {
-		name string
-		d    time.Duration
-		want uint64
+		name     string
+		d        time.Duration
+		expected uint64
 	}{
-		{name: "negative", d: -time.Millisecond, want: 0},
-		{name: "zero", d: 0, want: 0},
-		{name: "sub tick", d: time.Nanosecond, want: 1},
-		{name: "exact tick", d: tick, want: 1},
-		{name: "one past tick", d: tick + time.Nanosecond, want: 2},
-		{name: "almost three ticks", d: 3*tick - time.Nanosecond, want: 3},
+		{name: "negative", d: -time.Millisecond, expected: 0},
+		{name: "zero", d: 0, expected: 0},
+		{name: "sub tick", d: time.Nanosecond, expected: 1},
+		{name: "exact tick", d: tick, expected: 1},
+		{name: "one past tick", d: tick + time.Nanosecond, expected: 2},
+		{name: "almost three ticks", d: 3*tick - time.Nanosecond, expected: 3},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := durationToTicks(tt.d, tick); got != tt.want {
-				t.Fatalf("durationToTicks(%s, %s) = %d, want %d", tt.d, tick, got, tt.want)
+			if got := durationToTicks(tt.d, tick); got != tt.expected {
+				t.Fatalf("durationToTicks(%s, %s) = %d, expected %d", tt.d, tick, got, tt.expected)
 			}
 		})
 	}
@@ -122,7 +122,7 @@ func TestNewWheelRequiresPositiveTick(t *testing.T) {
 		t.Run(tick.String(), func(t *testing.T) {
 			defer func() {
 				if recover() == nil {
-					t.Fatalf("NewWheel(%s) did not panic", tick)
+					t.Fatalf("NewWheel(%s) did not panic, expected panic", tick)
 				}
 			}()
 
@@ -161,7 +161,7 @@ func TestAfterAndAfterFunc(t *testing.T) {
 	waitStruct(t, done, 200*time.Millisecond, "AfterFunc callback")
 	time.Sleep(10 * testTick)
 	if got := atomic.LoadInt32(&called); got != 1 {
-		t.Fatalf("AfterFunc callback count = %d, want 1", got)
+		t.Fatalf("AfterFunc callback count = %d, expected 1", got)
 	}
 	assertWheelEmpty(t, w)
 }
@@ -175,10 +175,10 @@ func TestNewTimerFuncPassesTimestampAndArgs(t *testing.T) {
 
 	w.NewTimerFunc(5*testTick, func(tm time.Time, args ...interface{}) {
 		if tm.IsZero() {
-			t.Errorf("callback timestamp is zero")
+			t.Errorf("callback timestamp is zero, expected non-zero time")
 		}
 		if len(args) != 2 || args[0] != "key" || args[1] != 42 {
-			t.Errorf("callback args = %#v, want [key 42]", args)
+			t.Errorf("callback args = %#v, expected []interface{}{\"key\", 42}", args)
 		}
 		done <- struct{}{}
 	}, "key", 42)
@@ -195,19 +195,19 @@ func TestResetTimer(t *testing.T) {
 
 	stopped := w.NewTimer(100 * testTick)
 	if !stopped.Stop() {
-		t.Fatalf("Stop before Reset returned false")
+		t.Fatalf("Stop before Reset returned false, expected true")
 	}
 	if !stopped.Reset(5 * testTick) {
-		t.Fatalf("Reset of stopped timer returned false")
+		t.Fatalf("Reset of stopped timer returned false, expected true")
 	}
 	waitTime(t, stopped.C, 200*time.Millisecond, "reset stopped timer")
 	if stopped.Reset(5 * testTick) {
-		t.Fatalf("Reset of already executed timer returned true")
+		t.Fatalf("Reset of already executed timer returned true, expected false")
 	}
 
 	active := w.NewTimer(100 * testTick)
 	if !active.Reset(5 * testTick) {
-		t.Fatalf("Reset of active timer returned false")
+		t.Fatalf("Reset of active timer returned false, expected true")
 	}
 	waitTime(t, active.C, 200*time.Millisecond, "reset active timer")
 	assertWheelEmpty(t, w)
@@ -226,15 +226,15 @@ func TestTimersAndRealTimersTrackAddsAndStops(t *testing.T) {
 	}
 
 	if got := w.Timers(); got != n {
-		t.Fatalf("Timers() = %d, want %d", got, n)
+		t.Fatalf("Timers() = %d, expected %d", got, n)
 	}
 	if got := w.RealTimers(); got != n {
-		t.Fatalf("RealTimers() = %d, want %d", got, n)
+		t.Fatalf("RealTimers() = %d, expected %d", got, n)
 	}
 
 	for i, timer := range timers {
 		if !timer.Stop() {
-			t.Fatalf("timer %d Stop returned false", i)
+			t.Fatalf("timer %d Stop returned false, expected true", i)
 		}
 	}
 	assertWheelEmpty(t, w)
@@ -262,7 +262,7 @@ func TestStopTimerPreventsCallbackExecution(t *testing.T) {
 	stopped := make(map[int]struct{}, stoppedCount)
 	for i := 0; i < stoppedCount; i++ {
 		if !timers[i].Stop() {
-			t.Fatalf("timer %d Stop returned false", i)
+			t.Fatalf("timer %d Stop returned false, expected true", i)
 		}
 		stopped[i] = struct{}{}
 	}
@@ -274,20 +274,20 @@ func TestStopTimerPreventsCallbackExecution(t *testing.T) {
 		select {
 		case idx := <-fired:
 			if _, ok := stopped[idx]; ok {
-				t.Fatalf("stopped timer %d still executed", idx)
+				t.Fatalf("stopped timer %d still executed, expected no execution after Stop", idx)
 			}
 			if _, ok := seen[idx]; ok {
-				t.Fatalf("timer %d executed more than once", idx)
+				t.Fatalf("timer %d executed more than once, expected exactly one execution", idx)
 			}
 			seen[idx] = struct{}{}
 		case <-timeout:
-			t.Fatalf("only %d/%d unstopped timers executed", len(seen), expected)
+			t.Fatalf("only %d/%d unstopped timers executed, expected %d/%d", len(seen), expected, expected, expected)
 		}
 	}
 
 	select {
 	case idx := <-fired:
-		t.Fatalf("unexpected extra timer execution: %d", idx)
+		t.Fatalf("unexpected extra timer execution: %d, expected no extra execution", idx)
 	case <-time.After(20 * testTick):
 	}
 	assertWheelEmpty(t, w)
@@ -342,19 +342,19 @@ func TestTimerPoolReusesReleasedTimers(t *testing.T) {
 
 	timer := w.NewTimer(time.Second)
 	if got := w.PoolNewCount(); got != 1 {
-		t.Fatalf("PoolNewCount after first timer = %d, want 1", got)
+		t.Fatalf("PoolNewCount after first timer = %d, expected 1", got)
 	}
 	if !timer.Stop() {
-		t.Fatalf("first timer Stop returned false")
+		t.Fatalf("first timer Stop returned false, expected true")
 	}
 	timer.Release()
 
 	timer = w.NewTimer(time.Second)
 	if got := w.PoolNewCount(); got != 1 {
-		t.Fatalf("PoolNewCount after reusing released timer = %d, want 1", got)
+		t.Fatalf("PoolNewCount after reusing released timer = %d, expected 1", got)
 	}
 	if !timer.Stop() {
-		t.Fatalf("second timer Stop returned false")
+		t.Fatalf("second timer Stop returned false, expected true")
 	}
 	timer.Release()
 	assertWheelEmpty(t, w)
@@ -376,10 +376,10 @@ func BenchmarkWheelTimerFunc(b *testing.B) {
 	}
 
 	if w.Timers() != 0 {
-		b.Fatalf("w.Timers():%d not eq 0\n", w.Timers())
+		b.Fatalf("w.Timers() = %d, expected 0", w.Timers())
 	}
 	if w.RealTimers() != 0 {
-		b.Fatalf("w.RealTimers():%d not eq 0\n", w.RealTimers())
+		b.Fatalf("w.RealTimers() = %d, expected 0", w.RealTimers())
 	}
 }
 
@@ -400,10 +400,10 @@ func BenchmarkWheelTimerParallel(b *testing.B) {
 		}
 	})
 	if w.Timers() != 0 {
-		b.Fatalf("w.Timers():%d not eq 0\n", w.Timers())
+		b.Fatalf("w.Timers() = %d, expected 0", w.Timers())
 	}
 	if w.RealTimers() != 0 {
-		b.Fatalf("w.RealTimers():%d not eq 0\n", w.RealTimers())
+		b.Fatalf("w.RealTimers() = %d, expected 0", w.RealTimers())
 	}
 }
 
@@ -423,6 +423,6 @@ func BenchmarkWheelShardTimerParallel(b *testing.B) {
 		}
 	})
 	if w.Timers() != 0 {
-		b.Fatalf("w.Timers():%d not eq 0\n", w.Timers())
+		b.Fatalf("w.Timers() = %d, expected 0", w.Timers())
 	}
 }
