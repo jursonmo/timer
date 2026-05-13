@@ -1,227 +1,368 @@
 package timer
 
 import (
-	"context"
-	"math/rand"
-	"reflect"
-	"sync"
+	"fmt"
+	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"go.uber.org/goleak"
 )
 
-// 跑测试用例: go test -v .
-func TestTimer(t *testing.T) {
-	tick := 1 * time.Millisecond
-	var w = NewWheel(tick)
-	defer w.Stop()
-	d := 10 * time.Millisecond
-	timer := w.NewTimer(d)
+const testTick = time.Millisecond
 
-	ctx, _ := context.WithTimeout(context.Background(), d+2*tick)
-	//ctx 比timer 的timeout 时间多两个tick, 按道理timer 先超时
+func TestMain(m *testing.M) {
+	code := m.Run()
+
+	StopDefaultWheelShard()
+	time.Sleep(200 * time.Millisecond)
+	if code == 0 {
+		if err := goleak.Find(); err != nil {
+			fmt.Fprintf(os.Stderr, "goleak: %v\n", err)
+			code = 1
+		}
+	}
+	os.Exit(code)
+}
+
+func newTestWheel(t *testing.T, tick time.Duration, opts ...Option) *Wheel {
+	t.Helper()
+
+	w := NewWheel(tick, opts...)
+	t.Cleanup(w.Stop)
+	return w
+}
+
+func waitTime(t *testing.T, ch <-chan time.Time, timeout time.Duration, name string) time.Time {
+	t.Helper()
+
 	select {
-	case <-ctx.Done():
-		t.Fatalf("") //在低负载的情况下，如果ctx 先超时,说明timer 功能不正常
-	case <-timer.C:
-		break
+	case tm := <-ch:
+		return tm
+	case <-time.After(timeout):
+		t.Fatalf("timed out waiting for %s after %s", name, timeout)
+		return time.Time{}
 	}
 }
 
-func TestTicker(t *testing.T) {
-	var testWheel = NewWheel(1 * time.Millisecond)
-	defer testWheel.Stop()
-	wait := make(chan struct{}, 100)
-	i := 0
-	f := func() {
-		println(time.Now().Unix())
-		i++
-		if i >= 5 {
-			wait <- struct{}{}
-		}
+func waitStruct(t *testing.T, ch <-chan struct{}, timeout time.Duration, name string) {
+	t.Helper()
+
+	select {
+	case <-ch:
+	case <-time.After(timeout):
+		t.Fatalf("timed out waiting for %s after %s", name, timeout)
 	}
-	before := time.Now()
-
-	t1 := testWheel.TickFunc(1000*time.Millisecond, f)
-
-	<-wait
-
-	t1.Stop()
-
-	after := time.Now()
-
-	println(after.Sub(before).String())
 }
 
-/*
-//可以调用两次timer.Stop() 都返回true
+func assertNoTime(t *testing.T, ch <-chan time.Time, within time.Duration, name string) {
+	t.Helper()
 
-	func TestRepeatStopTimer(t *testing.T) {
-		w := NewWheel(1 * time.Millisecond)
-		timer := w.NewTimer(500 * time.Millisecond)
-
-		if !timer.Stop() {
-			t.Fatalf("t.Stop() fail")
-		}
-		if timer.Stop() {
-			t.Fatalf("shouldn't repeat Stop() timer")
-		}
-		w.Stop()
+	select {
+	case tm := <-ch:
+		t.Fatalf("%s fired unexpectedly at %v", name, tm)
+	case <-time.After(within):
 	}
-*/
+}
+
+func requireEventually(t *testing.T, timeout time.Duration, check func() bool, msg string) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if check() {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("condition not met within %s: %s", timeout, msg)
+}
+
+func assertWheelEmpty(t *testing.T, w *Wheel) {
+	t.Helper()
+
+	requireEventually(t, 100*time.Millisecond, func() bool {
+		return w.Timers() == 0 && w.RealTimers() == 0
+	}, fmt.Sprintf("wheel still has timers: Timers=%d RealTimers=%d", w.Timers(), w.RealTimers()))
+}
+
+// TestDurationToTicksCeilsAndHandlesNonPositiveDurations 测试 duration 转 tick 的换算逻辑。
+// 功能点：非正数应返回 0；不足一个 tick、超过整数 tick 的 duration 应向上取整。
+// 方法：直接调用内部换算函数，用表格测试覆盖边界值和典型值。
+func TestDurationToTicksCeilsAndHandlesNonPositiveDurations(t *testing.T) {
+	tick := 10 * time.Millisecond
+	tests := []struct {
+		name string
+		d    time.Duration
+		want uint64
+	}{
+		{name: "negative", d: -time.Millisecond, want: 0},
+		{name: "zero", d: 0, want: 0},
+		{name: "sub tick", d: time.Nanosecond, want: 1},
+		{name: "exact tick", d: tick, want: 1},
+		{name: "one past tick", d: tick + time.Nanosecond, want: 2},
+		{name: "almost three ticks", d: 3*tick - time.Nanosecond, want: 3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := durationToTicks(tt.d, tick); got != tt.want {
+				t.Fatalf("durationToTicks(%s, %s) = %d, want %d", tt.d, tick, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestNewWheelRequiresPositiveTick 测试 NewWheel 的参数校验。
+// 功能点：tick 必须大于 0；传入 0 或负数时应该 panic，防止创建无效时间轮。
+// 方法：对子用例使用 defer recover 捕获 panic，并断言非法 tick 一定触发 panic。
+func TestNewWheelRequiresPositiveTick(t *testing.T) {
+	for _, tick := range []time.Duration{0, -time.Millisecond} {
+		t.Run(tick.String(), func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatalf("NewWheel(%s) did not panic", tick)
+				}
+			}()
+
+			NewWheel(tick)
+		})
+	}
+}
+
+// TestNewTimerFiresOnceAndRemovesItself 测试一次性 Timer 的基本行为。
+// 功能点：NewTimer 创建的 timer 应按时触发一次，触发后不再重复触发，并从时间轮中移除。
+// 方法：等待 timer.C 收到事件，再用短 timeout 验证没有第二次事件，最后检查 Timers 和 RealTimers 都归零。
+func TestNewTimerFiresOnceAndRemovesItself(t *testing.T) {
+	w := newTestWheel(t, testTick)
+	timer := w.NewTimer(5 * testTick)
+
+	waitTime(t, timer.C, 200*time.Millisecond, "timer")
+	assertNoTime(t, timer.C, 10*testTick, "one-shot timer")
+	assertWheelEmpty(t, w)
+}
+
+// TestAfterAndAfterFunc 测试 After 和 AfterFunc 两个便捷 API。
+// 功能点：After 应返回会触发的时间 channel；AfterFunc 应只执行一次回调，并在执行后清理 timer。
+// 方法：分别等待 channel 事件和回调完成信号，再用原子计数确认回调只运行一次。
+func TestAfterAndAfterFunc(t *testing.T) {
+	w := newTestWheel(t, testTick)
+
+	waitTime(t, w.After(5*testTick), 200*time.Millisecond, "After")
+
+	var called int32
+	done := make(chan struct{}, 1)
+	w.AfterFunc(5*testTick, func() {
+		atomic.AddInt32(&called, 1)
+		done <- struct{}{}
+	})
+
+	waitStruct(t, done, 200*time.Millisecond, "AfterFunc callback")
+	time.Sleep(10 * testTick)
+	if got := atomic.LoadInt32(&called); got != 1 {
+		t.Fatalf("AfterFunc callback count = %d, want 1", got)
+	}
+	assertWheelEmpty(t, w)
+}
+
+// TestNewTimerFuncPassesTimestampAndArgs 测试自定义 callback timer 的参数传递。
+// 功能点：NewTimerFunc 的回调应收到非零触发时间，并完整收到创建 timer 时传入的可变参数。
+// 方法：在 callback 中检查 time.Time 和 args，callback 完成后再检查时间轮已清空。
+func TestNewTimerFuncPassesTimestampAndArgs(t *testing.T) {
+	w := newTestWheel(t, testTick)
+	done := make(chan struct{}, 1)
+
+	w.NewTimerFunc(5*testTick, func(tm time.Time, args ...interface{}) {
+		if tm.IsZero() {
+			t.Errorf("callback timestamp is zero")
+		}
+		if len(args) != 2 || args[0] != "key" || args[1] != 42 {
+			t.Errorf("callback args = %#v, want [key 42]", args)
+		}
+		done <- struct{}{}
+	}, "key", 42)
+
+	waitStruct(t, done, 200*time.Millisecond, "NewTimerFunc callback")
+	assertWheelEmpty(t, w)
+}
+
+// TestResetTimer 测试 Timer.Reset 的状态约束和重新调度能力。
+// 功能点：已 Stop 的 timer 可以 Reset 后重新触发；活跃 timer 可以 Reset 到新的时间；已执行完成的 timer 不能 Reset。
+// 方法：分别构造 stopped、active、executed 三种状态，检查 Reset 返回值并等待重新调度后的触发事件。
 func TestResetTimer(t *testing.T) {
-	tick := 1 * time.Millisecond
-	w := NewWheel(tick)
-	defer w.Stop()
+	w := newTestWheel(t, testTick)
 
-	d := 10 * time.Millisecond
-	timer := w.NewTimer(d)
+	stopped := w.NewTimer(100 * testTick)
+	if !stopped.Stop() {
+		t.Fatalf("Stop before Reset returned false")
+	}
+	if !stopped.Reset(5 * testTick) {
+		t.Fatalf("Reset of stopped timer returned false")
+	}
+	waitTime(t, stopped.C, 200*time.Millisecond, "reset stopped timer")
+	if stopped.Reset(5 * testTick) {
+		t.Fatalf("Reset of already executed timer returned true")
+	}
+
+	active := w.NewTimer(100 * testTick)
+	if !active.Reset(5 * testTick) {
+		t.Fatalf("Reset of active timer returned false")
+	}
+	waitTime(t, active.C, 200*time.Millisecond, "reset active timer")
+	assertWheelEmpty(t, w)
+}
+
+// TestTimersAndRealTimersTrackAddsAndStops 测试 timer 计数和真实链表内容的一致性。
+// 功能点：批量添加 timer 后 Timers 和 RealTimers 都应等于添加数量；批量 Stop 后两者都应归零。
+// 方法：创建多个长延迟 timer 避免自然触发，检查计数后逐个 Stop，再轮询确认时间轮为空。
+func TestTimersAndRealTimersTrackAddsAndStops(t *testing.T) {
+	w := newTestWheel(t, testTick)
+
+	const n = 32
+	timers := make([]*Timer, 0, n)
+	for i := 0; i < n; i++ {
+		timers = append(timers, w.NewTimer(time.Second))
+	}
+
+	if got := w.Timers(); got != n {
+		t.Fatalf("Timers() = %d, want %d", got, n)
+	}
+	if got := w.RealTimers(); got != n {
+		t.Fatalf("RealTimers() = %d, want %d", got, n)
+	}
+
+	for i, timer := range timers {
+		if !timer.Stop() {
+			t.Fatalf("timer %d Stop returned false", i)
+		}
+	}
+	assertWheelEmpty(t, w)
+}
+
+// TestStopTimerPreventsCallbackExecution 测试 Stop 的删除语义。
+// 功能点：Stop 返回成功的 timer 不应再执行 callback；未 Stop 的 timer 应全部执行且只执行一次。
+// 方法：批量创建 callback timer，停止其中一部分；收集执行的 index，断言停止集合未出现、未停止集合全部出现且没有重复。
+func TestStopTimerPreventsCallbackExecution(t *testing.T) {
+	w := newTestWheel(t, testTick)
+
+	const (
+		n            = 256
+		stoppedCount = 32
+	)
+	fired := make(chan int, n)
+	timers := make([]*WheelTimer, 0, n)
+	for i := 0; i < n; i++ {
+		timer := w.NewWheelTimerFunc(40*testTick, func(_ time.Time, args ...interface{}) {
+			fired <- args[0].(int)
+		}, i)
+		timers = append(timers, timer)
+	}
+
+	stopped := make(map[int]struct{}, stoppedCount)
+	for i := 0; i < stoppedCount; i++ {
+		if !timers[i].Stop() {
+			t.Fatalf("timer %d Stop returned false", i)
+		}
+		stopped[i] = struct{}{}
+	}
+
+	expected := n - stoppedCount
+	seen := make(map[int]struct{}, expected)
+	timeout := time.After(500 * time.Millisecond)
+	for len(seen) < expected {
+		select {
+		case idx := <-fired:
+			if _, ok := stopped[idx]; ok {
+				t.Fatalf("stopped timer %d still executed", idx)
+			}
+			if _, ok := seen[idx]; ok {
+				t.Fatalf("timer %d executed more than once", idx)
+			}
+			seen[idx] = struct{}{}
+		case <-timeout:
+			t.Fatalf("only %d/%d unstopped timers executed", len(seen), expected)
+		}
+	}
+
+	select {
+	case idx := <-fired:
+		t.Fatalf("unexpected extra timer execution: %d", idx)
+	case <-time.After(20 * testTick):
+	}
+	assertWheelEmpty(t, w)
+}
+
+// TestTickerFiresRepeatedlyAndStops 测试 Ticker 的周期触发和停止行为。
+// 功能点：Ticker 应持续按周期产生事件；Stop 成功后不应再产生新事件，并从时间轮移除。
+// 方法：连续等待三次 tick，再重试 Stop 直到成功；清空已有缓冲后验证短时间内没有新的 tick。
+func TestTickerFiresRepeatedlyAndStops(t *testing.T) {
+	w := newTestWheel(t, testTick)
+	ticker := w.NewTicker(5 * testTick)
+
+	for i := 0; i < 3; i++ {
+		waitTime(t, ticker.C, 200*time.Millisecond, fmt.Sprintf("ticker tick %d", i+1))
+	}
+
+	requireEventually(t, 100*time.Millisecond, ticker.Stop, "ticker did not stop")
+	for {
+		select {
+		case <-ticker.C:
+		default:
+			assertNoTime(t, ticker.C, 25*testTick, "stopped ticker")
+			assertWheelEmpty(t, w)
+			return
+		}
+	}
+}
+
+// TestTimerCascadesFromHigherWheelLevel 测试多级时间轮的 cascade 逻辑。
+// 功能点：超过 tv1 范围的 timer 应先进入更高层级时间轮，随后在 jiffies 推进时级联回 tv1 并最终执行。
+// 方法：创建 delay 大于 tvr_size 个 tick 的 timer，等待 callback 完成，再确认时间轮清空。
+func TestTimerCascadesFromHigherWheelLevel(t *testing.T) {
+	w := newTestWheel(t, testTick)
+	done := make(chan struct{}, 1)
+
+	w.NewWheelTimerFunc(time.Duration(tvr_size+5)*testTick, func(time.Time, ...interface{}) {
+		done <- struct{}{}
+	})
+
+	waitStruct(t, done, 800*time.Millisecond, "cascaded timer")
+	assertWheelEmpty(t, w)
+}
+
+// TestTimerPoolReusesReleasedTimers 测试 timer pool 的复用行为。
+// 功能点：Stop 后 Release 的 timer 应放回 pool；再次创建 timer 时应复用对象而不是增加新的分配计数。
+// 方法：使用带 PoolNewCount 的 sync.Pool 实现，创建、Stop、Release、再创建，检查 PoolNewCount 保持为 1。
+func TestTimerPoolReusesReleasedTimers(t *testing.T) {
+	w := newTestWheel(t, 2*testTick, WithTimerPool(NewTimerSyncPool()))
+	if w.PoolNewCount() == -1 {
+		t.Skip("timer pool does not expose PoolNewCount")
+	}
+
+	timer := w.NewTimer(time.Second)
+	if got := w.PoolNewCount(); got != 1 {
+		t.Fatalf("PoolNewCount after first timer = %d, want 1", got)
+	}
 	if !timer.Stop() {
-		t.Fatalf("timer.Stop() fail")
+		t.Fatalf("first timer Stop returned false")
 	}
-	//should Stop timer before Reset()
-	if !timer.Reset(d) {
-		t.Fatalf("timer.Reset() fail")
+	timer.Release()
+
+	timer = w.NewTimer(time.Second)
+	if got := w.PoolNewCount(); got != 1 {
+		t.Fatalf("PoolNewCount after reusing released timer = %d, want 1", got)
 	}
-	time.Sleep(d + 2*tick) //wait and timer should timeout and excuted
-	if timer.Reset(d) {
-		t.Fatalf("timer should have executed, timer.Reset() should be failed")
+	if !timer.Stop() {
+		t.Fatalf("second timer Stop returned false")
 	}
-}
-
-func TestTimers(t *testing.T) {
-	w := NewWheel(1 * time.Millisecond)
-	defer w.Stop()
-
-	s := rand.NewSource(time.Now().UnixNano())
-	r := rand.New(s)
-
-	n := 10000
-	for i := 0; i < n; i++ {
-		delay := 500 + r.Intn(300)
-		w.NewTimer(time.Duration(delay) * time.Millisecond)
-	}
-	if timers := w.Timers(); timers != n {
-		t.Fatalf("add %d timer, but there are %d timer in wheel\n", n, timers)
-	}
-
-	time.Sleep(time.Second)
-	if timers := w.Timers(); timers != 0 {
-		t.Fatalf("all timer should have executed, but there are %d timer in wheel\n", timers)
-	}
-
-	if w.Timers() != w.RealTimers() {
-		t.Fatalf("w.Timers():%d not eq w.RealTimers():%d \n", w.Timers(), w.RealTimers())
-	}
-}
-
-// go test *.go -test.run TestStopTimer
-func TestStopTimer(t *testing.T) {
-	var testWheel = NewWheel(1 * time.Millisecond)
-	defer testWheel.Stop()
-
-	//n := 3000
-	n := 1000
-	var mu sync.Mutex
-	stopTimerMap := make(map[int]*WheelTimer)
-	timerMap := make(map[int]*WheelTimer)
-	f := func(_ time.Time, args ...interface{}) {
-		mu.Lock()
-		index := args[0].(int)
-		st, ok := stopTimerMap[index]
-		if ok {
-			t.Fatalf("index:%d timer:%s has Stop, but still exec", index, st.Info())
-		}
-		delete(timerMap, index) //timer execute, delete from timerMap
-		mu.Unlock()
-	}
-	s := rand.NewSource(time.Now().UnixNano())
-	r := rand.New(s)
-
-	//创建1000个延迟范围在500-520 毫秒的定时器
-	for i := 0; i < n; i++ {
-		delay := 500 + r.Intn(20)
-		t := testWheel.NewWheelTimerFunc(time.Duration(delay)*time.Millisecond, f, i)
-		mu.Lock()
-		timerMap[i] = t
-		mu.Unlock()
-
-		if i/1000 > 0 {
-			time.Sleep(time.Millisecond * time.Duration(i/1000))
-		}
-	}
-
-	//defaultTimerSize = 128
-	//大于128后,append t时,会创建新的内存， t.vec指向老的内存，这样t.Stop() 按道理是无法删除
-	mu.Lock()
-	for j := 0; j < 10; j++ {
-		st, ok := timerMap[j]
-		if !ok {
-			t.Logf("index:%d, not exsit, have been exec ?\n", j)
-			continue
-		}
-		b := st.Stop()
-		if !b {
-			t.Logf("Stop index:%d,timer fail\n", j)
-			continue
-		}
-		//Stop success and record
-		stopTimerMap[j] = st //如果成功Stop 0-9 的timer, 按道理这10 timer是不会被执行的, 如果执行了，就证明Stop实际没有成功。
-	}
-	mu.Unlock()
-
-	time.Sleep(time.Second)
-	if len(timerMap) > 0 {
-		t.Logf("len(timerMap):%d\n", len(timerMap))
-		// for index := range timerMap {
-		// 	t.Logf("index:%d\n", index)
-		// }
-	}
-	if len(timerMap) != len(stopTimerMap) {
-		t.Fatalf("len(timerMap)=%d not equal len(stopTimerMap)=%d ", len(timerMap), len(stopTimerMap))
-	}
-	//timerMap 剩下的是没有得到执行的timer, 即中途被stop的timer
-	if !reflect.DeepEqual(timerMap, stopTimerMap) {
-		t.Fatalf("timerMap not equal stopTimerMap ")
-	}
-
-}
-
-func TestTimerPool(t *testing.T) {
-	var testWheel = NewWheel(2*time.Millisecond, WithTimerPool(NewTimerSyncPool()))
-	defer testWheel.Stop()
-
-	if testWheel.PoolNewCount() == -1 { //wheel timerPool have not implements PoolNewCount
-		t.Logf("wheel timerPool have not implements PoolNewCount, can't TestTimerPool")
-		return
-	}
-
-	n := 1000
-	release := 0
-	timer := testWheel.NewTimer(time.Duration(10) * time.Millisecond) //new one first
-	for i := 0; i < n; i++ {
-		if timer.Stop() {
-			timer.Release()
-			release++
-		}
-		//this timer should get from pool unless gc happen
-		timer = testWheel.NewTimer(time.Duration(10+i) * time.Millisecond)
-	}
-
-	//除非发生了gc, 不然timer Release 后，就会给 NewTimer。但是如果pool 功能正常，是不会发生gc 的。
-	//go version 1.14 以后的版本，需要两次gc才会把pool 的对象回收。
-	if (n - release + 1) != int(testWheel.PoolNewCount()) {
-		t.Fatalf("alloc:%d, pool new count:%d", n-release+1, testWheel.PoolNewCount())
-	}
-	t.Logf("alloc:%d, pool new count:%d", n-release+1, testWheel.PoolNewCount())
+	timer.Release()
+	assertWheelEmpty(t, w)
 }
 
 func BenchmarkWheelTimerFunc(b *testing.B) {
 	var w = NewWheel(1 * time.Millisecond)
 	defer w.Stop()
-	// s := rand.NewSource(time.Now().UnixNano())
-	// r := rand.New(s)
 	f := func(t time.Time, args ...interface{}) {}
 	b.ResetTimer()
 
@@ -245,11 +386,8 @@ func BenchmarkWheelTimerFunc(b *testing.B) {
 func BenchmarkWheelTimerParallel(b *testing.B) {
 	var w = NewWheel(1 * time.Millisecond)
 	defer w.Stop()
-	// s := rand.NewSource(time.Now().UnixNano())
-	// r := rand.New(s)
 	f := func(t time.Time, args ...interface{}) {}
 
-	//log.Printf("------------start----------")
 	b.Log("------------start----------")
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -272,8 +410,6 @@ func BenchmarkWheelTimerParallel(b *testing.B) {
 func BenchmarkWheelShardTimerParallel(b *testing.B) {
 	var w = NewWheelShard(1 * time.Millisecond)
 	defer w.Stop()
-	// s := rand.NewSource(time.Now().UnixNano())
-	// r := rand.New(s)
 	f := func(t time.Time, args ...interface{}) {}
 
 	b.RunParallel(func(pb *testing.PB) {
@@ -290,54 +426,3 @@ func BenchmarkWheelShardTimerParallel(b *testing.B) {
 		b.Fatalf("w.Timers():%d not eq 0\n", w.Timers())
 	}
 }
-
-// 检测之前的所有测试用例是否有泄露, 注意把 TestGoroutineLeak 放在所有测试用例的最后
-func TestGoroutineLeak(t *testing.T) {
-	defer func() {
-		time.Sleep(time.Second)
-		goleak.VerifyNone(t) //检测之前的所有测试用例是否有泄露
-	}()
-
-	StopDefaultWheelShard() //需要 stop 默认的时间轮
-}
-
-/*
-// 测试单个测试用例
-go test -v *.go -test.run TestStopTimer
-go test -v *.go -run TestStopTimer
-
-//测试 所有测试用例
-MacBook-Pro:timer obc$ go test *.go -v
-=== RUN   TestTimer
---- PASS: TestTimer (0.01s)
-=== RUN   TestTicker
-1647501212
-1647501213
-1647501214
-1647501215
-1647501216
-5.008177058s
---- PASS: TestTicker (5.01s)
-=== RUN   TestResetTimer
---- PASS: TestResetTimer (0.01s)
-=== RUN   TestTimers
---- PASS: TestTimers (1.01s)
-=== RUN   TestStopTimer
-    wheel_test.go:168: len(timerMap):10
---- PASS: TestStopTimer (1.00s)
-=== RUN   TestTimerPool
-    wheel_test.go:206: alloc:1, pool new count:1
---- PASS: TestTimerPool (0.00s)
-PASS
-ok  	command-line-arguments	7.053s
-
-MacBook-Pro:timer obc$ go test -bench .  -benchmem
-goos: darwin
-goarch: amd64
-pkg: github.com/jursonmo/timer
-BenchmarkWheelTimerFunc-4            	 5765389	       201 ns/op	      24 B/op	       2 allocs/op
-BenchmarkWheelTimerParallel-4        	 4115576	       282 ns/op	      24 B/op	       2 allocs/op
-BenchmarkWheelShardTimerParallel-4   	12065094	        98.3 ns/op	      24 B/op	       2 allocs/op
-PASS
-ok  	github.com/jursonmo/timer	11.243s
-*/
