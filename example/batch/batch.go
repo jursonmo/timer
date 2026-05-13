@@ -42,7 +42,7 @@ func main() {
 	for j := 0; j < 10; j++ {
 		st, ok := timerMap[j]
 		if !ok {
-			log.Fatalf("index:%, not exsit\n", j)
+			log.Fatalf("index:%d, not exsit\n", j)
 		}
 		b := st.Stop()
 		if !b {
